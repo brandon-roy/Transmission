@@ -1,0 +1,326 @@
+---
+title: "Acquisition by root traits"
+author: "Brandon G Roy"
+date: "2025-02-17"
+output: html_document
+---
+
+```{r}
+
+library(dplyr)
+library(stringr)
+
+# For the nematode_samples dataframe:
+nematode_samples2 <- nematode_samples %>%
+  # Create a new 'replicate' column: if Basin contains "B", then replicate = 2, else 1.
+  mutate(replicate = ifelse(grepl("B", Basin), 2, 1),
+         # Extract only the numeric portion of Basin.
+         Basin = as.numeric(str_extract(Basin, "\\d+"))
+         )
+
+# (Optional) Check the transformation:
+head(nematode_samples2[, c("Basin", "replicate")])
+
+nematode_samples2 <- nematode_samples2 %>% 
+  rename(replicate = replicate, Basin = Basin)
+
+# Process the final_data dataframe:
+final_data2 <- final_data %>%
+  # Rename the replicate column to lower-case 'replicate' if needed
+  rename(replicate = replicate) %>%
+  mutate(
+    # Extract the numeric part from strings like "Replicate 1"
+    replicate = as.numeric(str_extract(replicate, "\\d+"))
+    # (Assuming the Basin column in final_data is already numeric; 
+    # if not, you can similarly extract digits using str_extract.)
+  )
+
+final_data2$Basin <- as.numeric(final_data2$Basin)
+
+
+# Perform an inner join using dplyr:
+merged_df <- inner_join(nematode_samples2, final_data2, by = c("replicate", "Basin"))
+
+# View the first few rows of the merged dataframe
+head(merged_df)
+```
+
+
+
+```{r}
+
+library(dplyr)
+library(stringr)
+
+# Filter for center plants (adjust the condition if your indicator is different)
+center_plants <- merged_df %>% 
+  filter(center == "center" | center == 1)
+
+# Rename columns for convenience.
+# Adjust the column names as needed.
+center_plants <- center_plants %>%
+  rename(
+    volume = `volume (mm^3)`,
+    surface_area = `surface area (mm^2)`,
+    norm_gflv = `Normalized GFLV concentration (ng/µL)`
+    # Add more renaming for other root traits if desired, for example:
+    # root_length_range1 = `root length diameter range 1 (mm)`,
+    # projected_area_range1 = `projected area diameter range 1 (mm^2)`
+  )
+
+library(tidyr)
+library(purrr)
+library(broom)
+
+# Group the data by Basin and nest the data for each group
+models_by_basin <- center_plants %>%
+  group_by(basin) %>%
+  nest() %>%
+  mutate(
+    # Fit a linear model predicting normalized GFLV concentration
+    # from volume and surface_area (you can add more predictors)
+    model = map(data, ~ lm(norm_gflv ~ volume + surface_area, data = .))
+  )
+
+# To view the model summaries for each Basin:
+model_summaries <- models_by_basin %>%
+  mutate(tidied = map(model, tidy)) %>%
+  unnest(tidied)
+
+# View the results:
+print(model_summaries)
+
+```
+
+
+
+```{r}
+
+overall_model <- lm(norm_gflv ~ volume * factor(Basin) + surface_area * factor(Basin), 
+                    data = center_plants)
+summary(overall_model)
+
+```
+
+
+```{r}
+
+# Load required packages
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(purrr)
+library(broom)
+
+# For the nematode_samples dataframe:
+nematode_samples2 <- nematode_samples %>%
+  # Create a new 'replicate' column: if Basin contains "B", then replicate = 2, else 1.
+  mutate(replicate = ifelse(grepl("B", Basin), 2, 1),
+         # Extract only the numeric portion of Basin.
+         Basin = as.numeric(str_extract(Basin, "\\d+"))
+         )
+
+# (Optional) Check the transformation:
+head(nematode_samples2[, c("Basin", "replicate")])
+
+nematode_samples2 <- nematode_samples2 %>% 
+  rename(replicate = replicate, Basin = Basin)
+
+# Process the final_data dataframe:
+final_data2 <- final_data %>%
+  # Rename the replicate column to lower-case 'replicate' if needed
+  rename(replicate = replicate) %>%
+  mutate(
+    # Extract the numeric part from strings like "Replicate 1"
+    replicate = as.numeric(str_extract(replicate, "\\d+"))
+    # (Assuming the Basin column in final_data is already numeric; 
+    # if not, you can similarly extract digits using str_extract.)
+  )
+
+final_data2$Basin <- as.numeric(final_data2$Basin)
+
+
+# Perform an inner join using dplyr:
+merged_df <- inner_join(nematode_samples2, final_data2, by = c("replicate", "Basin"))
+# Now merged_df contains all variables from both sources
+
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(broom)
+
+# Rename columns for easier reference.
+final_data_clean <- merged_df %>%
+  rename(
+    norm_gflv     = `Normalized GFLV concentration (ng/µL)`,
+    volume        = `volume (mm^3)`,
+    surface_area  = `surface area (mm^2)`,
+    branch_points = `number of branch points`,
+    root_tips     = `number of root tips`
+  )
+
+# Option A1: Fit separate overall models for center and for perimeter plants
+model_center <- lm(log(norm_gflv) ~ volume + surface_area + branch_points + root_tips,
+                   data = final_data_clean %>% filter(center == "1"))
+model_perimeter <- lm(norm_gflv ~ volume + surface_area + branch_points + root_tips,
+                      data = final_data_clean %>% filter(perimeter == "1"))
+
+# Summaries:
+summary(model_center)
+summary(model_perimeter)
+plot(model_center)
+# Option A2: If you want to run the analyses per Basin *and* per position, you can nest:
+models_by_group <- final_data_clean %>%
+  group_by(Basin, replicate) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(norm_gflv ~ volume + surface_area + branch_points + root_tips, data = .))
+  )
+
+# Unnest the coefficients for a combined view:
+results_by_group <- models_by_group %>%
+  mutate(tidied = map(model, tidy)) %>%
+  unnest(tidied)
+
+print(results_by_group)
+
+
+
+```
+
+
+
+```{r}
+
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+library(patchwork)  # For combining plots (optional)
+
+
+
+# Plot for Volume:
+p_volume <- ggplot(final_data_clean, aes(x = volume, y = log(norm_gflv))) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Volume (mm³)",
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Acquisition vs Volume (Central Plant Traits)") +
+  theme_minimal()
+
+# Plot for Surface Area:
+p_surface <- ggplot(final_data_clean, aes(x = surface_area, y = log(norm_gflv))) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Surface Area (mm²)",
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Acquisition vs Surface Area (Central Plant Traits)") +
+  theme_minimal()
+
+# Plot for Number of Branch Points:
+p_branch <- ggplot(final_data_clean, aes(x = branch_points, y = log(norm_gflv))) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Number of Branch Points",
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Acquisition vs Branch Points (Central Plant Traits)") +
+  theme_minimal()
+
+# Plot for Number of Root Tips:
+p_tips <- ggplot(final_data_clean, aes(x = root_tips, y = log(norm_gflv))) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Number of Root Tips",
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Acquisition vs Root Tips (Central Plant Traits)") +
+  theme_minimal()
+
+# STEP 3: (Optional) Combine the plots into a single panel.
+combined_plots <- (p_volume | p_surface) / (p_branch | p_tips)
+print(combined_plots)
+
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpmisc)   # For stat_poly_eq
+library(patchwork) # For combining plots (optional)
+
+# --- Step 1. Create Subsets for the Analysis Groups using Central Plant Data ---
+# (We assume that central plants have the proper root trait measurements.)
+# For acquisition, we use the flag columns 'center' and 'perimeter'.
+# Here, we keep only rows from central plants (i.e. filter(center == 1))
+# and then split based on whether the nematode measurement is from the center or the perimeter.
+center_df <- merged_df %>% 
+  filter(center == 1) %>% 
+  mutate(AnalysisGroup = "Center")   # Acquisition measured from central nematodes
+
+perimeter_df <- merged_df %>% 
+  filter(center == 1, perimeter == 1) %>% 
+  mutate(AnalysisGroup = "Perimeter")  # Acquisition measured from perimeter nematodes
+
+combined_df <- merged_df %>% 
+  filter(center == 1) %>% 
+  mutate(AnalysisGroup = "Combined")   # All acquisition data (if needed)
+
+# Combine the three subsets.
+analysis_df <- bind_rows(center_df, perimeter_df, combined_df)
+
+# Verify that the outcome column is present.
+# For example, check its name:
+print(names(analysis_df))
+# You should see "Normalized GFLV concentration (ng/µL)" listed.
+
+# --- Step 2. Pivot the Data into Long Format for the Root Traits ---
+# Specify the names of the root trait columns exactly as they appear in your data.
+traits <- c("number of root tips", "average diameter (mm)", 
+            "surface area (mm^2)", "total root length (mm)", 
+            "volume (mm^3)")
+
+analysis_long <- analysis_df %>%
+  pivot_longer(
+    cols = all_of(traits),         # Pivot only the selected trait columns
+    names_to = "Trait",
+    values_to = "TraitValue"
+  )
+
+# Verify that the outcome variable is still present:
+head(analysis_long$`Normalized GFLV concentration (ng/µL)`)
+
+# --- Step 3. Create the Facetted Plot ---
+# The x-axis will be the trait value, and the y-axis will be the normalized viral acquisition.
+# The plot is facetted by both Trait (columns) and AnalysisGroup (rows).
+ggplot(analysis_long, aes(x = TraitValue, y = log(`Normalized GFLV concentration (ng/µL)`))) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  stat_poly_eq(
+    formula = y ~ x,
+    aes(label = paste(..p.value.label.., "\n", ..eq.label.., sep = "")),
+    parse = TRUE,
+    label.x.npc = "left",
+    label.y.npc = 1
+  ) +
+  facet_grid(AnalysisGroup ~ Trait, scales = "free_x") +
+  labs(x = "Trait Value", 
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Influence of Central Plant Root Traits on Viral Acquisition") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(analysis_long, aes(x = TraitValue, y = log(`Normalized GFLV concentration (ng/µL)`), color = treatment)) +
+  geom_point(alpha = 0.3, shape = as.factor(analysis_long$treatment)) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  facet_grid(AnalysisGroup ~ Trait, scales = "free_x") +
+  labs(x = "Trait Value", 
+       y = "Normalized GFLV concentration (ng/µL)",
+       title = "Influence of Central Plant Root Traits on Viral Acquisition") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+```

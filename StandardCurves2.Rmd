@@ -1,0 +1,2512 @@
+---
+title: "Standard Curves X. index"
+author: "Brandon G Roy"
+date: "2024-05-17"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(xlsx)
+library(readxl)
+library(multcompView)
+library(agricolae)
+library(car)
+library(pROC)
+library(ResourceSelection)
+library(tidyplots)
+library(readr)
+library(lme4)
+library(emmeans)
+```
+
+```{r}
+# Create plots to display the standard curve data for viral detection, virus preps and for nematode samples
+
+StData <- read_csv("Standard Curves Full.csv")
+
+# Extract out virus prep and nematode samples into two different data frames
+viruscurve <- StData[StData$`Type of sample` == 'Virus only',]
+nematode <- StData[StData$`Type of sample` != 'Virus only',]
+
+# Plot the data
+nematode$`Contents (# of nematodes or virus dilution)` <- as.numeric(nematode$`Contents (# of nematodes or virus dilution)`)
+
+
+lm.N <- lm(`Log(virus concentration ng/uL)` ~ `Number of nematodes`, data= nematode)
+formulaN <- paste0("y = ", round(coef(lm.N)[1], 3), " + ", round(coef(lm.V)[2], 3), "x")
+r_squaredN <- paste0("R² = ", round(summary(lm.N)$r.squared, 3))
+
+ggplot(nematode, aes(x = `Contents (# of nematodes or virus dilution)`, y = `Log(virus concentration ng/uL)`, color = `Type of sample`, group = `Type of sample`)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=TRUE, color="blue") + 
+  labs(x = "Number of nematodes",
+       y = "Log(GFLV concentration ng/µL)") +
+  theme_minimal() + theme(text = element_text(size = 16), legend.position = "NA") +
+    facet_wrap(~`Type of sample`) +ylim(4,14)
+
+
+lm.V <- lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`, data= viruscurve)
+# Extract model statistics
+formula <- paste0("y = ", round(coef(lm.V)[1], 3), " + ", round(coef(lm.V)[2], 3), "x")
+r_squared <- paste0("R² = ", round(summary(lm.V)$r.squared, 3))
+
+ggplot(viruscurve, aes(x = `RNA1 gene from virus`, y = `Log[viral RNA conc.]`, colour= "Plate")) +
+  geom_point(color = 'purple') + 
+  geom_smooth(method = "lm", se = TRUE, color = 'NA', linetype = "dashed") +
+  labs(x = "Cq value (RNA1 gene from virus)",
+       y = "Log(Virus concentration ng/uL)") +
+  theme_minimal() + theme(text = element_text(size = 16)) +
+  annotate("text", x = 20, y = 12, label = formula, size = 5, color = "purple") +
+  annotate("text", x = 20, y = 11.5, label = r_squared,  size = 5, color = "purple") +
+  coord_fixed(ratio=2.5) + ylim(-10,10) + xlim(44,0)
+
+summary(lm.V)
+
+
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+
+# Read the data (adjust the file path as needed)
+StData <- read_csv("Standard Curves Full.csv")
+
+# Filter for the virus samples only (assuming these are the ones with standard curves)
+viruscurve <- StData[StData$`Type of sample` == "Virus only", ]
+
+# Fit separate linear models for each plate
+models <- viruscurve %>%
+  group_by(Plate) %>%
+  summarize(
+    intercept = coef(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))[1],
+    slope = coef(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))[2],
+    r_squared = summary(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))$r.squared,
+    .groups = "drop" # Prevents grouping after summarizing
+  )
+
+# Add predicted values and statistics for each plate
+viruscurve <- viruscurve %>%
+  left_join(models, by = "Plate") %>%
+  mutate(predicted = intercept + slope * `RNA1 gene from virus`)
+
+# Add R^2 and Plate labels for each plate
+r_squared_labels <- models %>%
+  mutate(
+    label = paste0("Plate ", Plate, ": R² = ", round(r_squared, 3)),
+    x_pos = max(viruscurve$`RNA1 gene from virus`),  # Place near the max x value
+    y_pos = intercept + slope * max(viruscurve$`RNA1 gene from virus`)  # Line equation for max x
+  )
+
+
+# Plot the data and overlay the linear models
+ggplot(viruscurve, aes(x = `RNA1 gene from virus`, y = `Log[viral RNA conc.]`, color = factor(Plate))) +
+  geom_point() +
+  geom_line(aes(y = predicted, group = Plate), size = 1, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = 'NA', linetype = "dashed") +
+  labs(
+    x = "Cq value (RNA1 gene from virus)",
+    y = "Log(Virus concentration ng/uL)",
+    color = "Plate",
+    title = "Overlay of Standard Curves by Plate"
+  ) + 
+  geom_text(
+    data = r_squared_labels,
+    aes(x = x_pos, y = y_pos, label = label), color = factor(r_squared_labels$Plate),
+    hjust = -60,  # Adjust position horizontally
+    vjust = 6,  # Adjust position vertically
+    size = 5
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 16), legend.position = "top")  + 
+  coord_fixed(ratio=1) + ylim(-10,5) + xlim(42,5)
+
+r_squared_labels$label
+# Display the model statistics
+print("Linear model statistics per plate:")
+print(models)
+```
+
+```{r}
+
+
+# Filter for the virus samples only (those used for standard curves)
+viruscurve <- StData %>%
+  filter(`Type of sample` == "Virus only")
+
+# Fit separate linear models for each plate
+models <- viruscurve %>%
+  group_by(Plate) %>%
+  summarize(
+    intercept = coef(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))[1],
+    slope = coef(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))[2],
+    r_squared = summary(lm(`Log[viral RNA conc.]` ~ `RNA1 gene from virus`))$r.squared,
+    .groups = "drop"
+  )
+
+# Define a reference plate (Plate 0) and its parameters
+plate_0 <- models %>%
+  filter(Plate == 3)
+
+reference_intercept <- plate_0$intercept
+reference_slope <- plate_0$slope
+
+# Calculate normalization factors for each plate (additive adjustment for log-transformed data)
+models <- models %>%
+  mutate(
+    reference_Cq = 25, # Common reference Cq value (adjust if needed)
+    log_viral_conc_ref = reference_intercept + reference_slope * reference_Cq,
+    log_viral_conc_plate = intercept + slope * reference_Cq,
+    normalization_factor = log_viral_conc_ref - log_viral_conc_plate # Additive adjustment
+  )
+
+# Apply normalization to adjust the log-transformed viral RNA concentrations
+viruscurve <- viruscurve %>%
+  left_join(models %>% dplyr::select(Plate, normalization_factor), by = "Plate") %>%
+  mutate(
+    normalized_log_viral_conc = `Log[viral RNA conc.]` + normalization_factor
+  )
+
+# Fit new linear models using normalized data
+normalized_models <- viruscurve %>%
+  group_by(Plate) %>%
+  summarize(
+    normalized_intercept = coef(lm(normalized_log_viral_conc ~ `RNA1 gene from virus`))[1],
+    normalized_slope = coef(lm(normalized_log_viral_conc ~ `RNA1 gene from virus`))[2],
+    normalized_r_squared = summary(lm(normalized_log_viral_conc ~ `RNA1 gene from virus`))$r.squared,
+    .groups = "drop"
+  )
+
+# Add normalized predictions to the data for graphing
+viruscurve <- viruscurve %>%
+  left_join(normalized_models, by = "Plate") %>%
+  mutate(
+    normalized_predicted = normalized_intercept + normalized_slope * `RNA1 gene from virus`
+  )
+
+# Plot the normalized standard curves
+ggplot(viruscurve, aes(x = `RNA1 gene from virus`, y = normalized_log_viral_conc, color = factor(Plate))) +
+  geom_point() +
+  geom_line(aes(y = normalized_predicted, group = Plate), size = 1, alpha = 0.7) +
+  labs(
+    x = "Cq value (RNA1 gene from virus)",
+    y = "Normalized Log(Virus concentration ng/uL)",
+    color = "Plate",
+    title = "Normalized Standard Curves by Plate (Log-Scale)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 16),
+    legend.position = "none"  # Remove the legend
+  ) + coord_fixed(ratio=1) + ylim(-10,10) + xlim(42,5)
+
+
+
+
+
+```
+
+
+```{r}
+
+# --------------------------------------------------
+# Step 1: Read in the two Excel files
+# --------------------------------------------------
+
+file_path1 <- "Experiment1Combined_qPCR_Xindex.xlsx"
+data1 <- read_excel(file_path1)
+
+file_path2 <- "Experiment2_2Combined_qPCR_Xindex.xlsx"
+data2 <- read_excel(file_path2)
+
+# --------------------------------------------------
+# Step 2: Combine the datasets
+# --------------------------------------------------
+data1$Basin <- as.character(data1$Basin)
+data2$Basin <- as.character(data2$Basin)
+combined_data <- bind_rows(data1, data2)
+
+# Optionally inspect the combined data
+print(head(combined_data))
+# Expected columns include: Plate, Name, Basin, Strain, Viral RNA concentration, Center,
+# Perimeter, Position, RNA1, Actin, and Number of nematodes
+
+# --------------------------------------------------
+# Step 3: Filter for nematode samples
+# --------------------------------------------------
+# Here we assume that nematode samples have a Number of nematodes greater than 0.
+nematode_samples <- combined_data %>%
+  filter(`Number of nematodes` > 0)
+
+# --------------------------------------------------
+# Step 4: Join with the plate-specific normalization parameters
+# --------------------------------------------------
+# The normalized_models dataframe should have been prepared beforehand.
+# For example, it might look something like this:
+#
+# normalized_models <- tibble(
+#   Plate = c(2, 3),  # Adjust to match the plates in your experiment
+#   normalized_intercept = c( ... , ... ),
+#   normalized_slope = c( ... , ... ),
+#   normalization_factor = c( ... , ... )
+# )
+#
+# Now we join these parameters by the Plate column.
+nematode_samples <- nematode_samples %>%
+  left_join(normalized_models, by = "Plate")
+
+# Check the join
+print(head(nematode_samples))
+
+# Choose a reference plate (e.g., Plate 3) and extract its intercept:
+ref_int <- models %>% filter(Plate == 4) %>% pull(intercept)
+
+# Compute the normalization factor for each plate as the difference between
+# the reference intercept and the plate's original intercept.
+normalization_table <- models %>%
+  mutate(normalization_factor = ref_int - intercept)
+  
+# For clarity, the normalization factor is:
+#   normalization_factor = (reference intercept) - (plate intercept)
+# This will be added to log-transformed values.
+
+# ====================================================
+# STEP 4: Join the Nematode Samples with the Normalization Table
+# ====================================================
+# Make sure that the "Plate" column in both dataframes has the same type.
+nematode_samples <- nematode_samples %>%
+  left_join(normalization_table, by = "Plate")
+
+# Inspect the joined data to ensure the parameters are available:
+print(head(nematode_samples %>% 
+             dplyr::select(Plate, RNA1, Actin, intercept, slope, normalization_factor)))
+
+# ====================================================
+# STEP 5: Apply the Normalization to the Viral (GFLV) and Actin Measurements
+# ====================================================
+# For the viral gene:
+#   Compute the estimated log RNA concentration using the plate-specific regression:
+#       log_rna_conc = intercept + slope * RNA1
+#   Then add the normalization factor so that:
+#       normalized_log_rna_conc = (intercept + slope * RNA1) + (ref_int - intercept)
+#                                 = ref_int + slope * RNA1
+#
+# For the actin gene:
+#   Apply the same additive shift:
+#       Normalized X. index actin = Actin + (ref_int - intercept)
+#
+# Finally, back-transform the normalized log viral concentration to get concentration in ng/µL.
+nematode_samples <- nematode_samples %>%
+  mutate(
+    # Estimate the log concentration based on the plate's regression:
+    log_rna_conc = intercept + slope * RNA1,
+    # Apply the additive normalization (difference in intercepts):
+    normalized_log_rna_conc = log_rna_conc + normalization_factor,  # equals ref_int + slope * RNA1
+    # Back-transform from log10 (adjust if using natural log):
+    `Normalized GFLV concentration (ng/µL)` = 10^(normalized_log_rna_conc),
+    
+    # Normalize the Actin gene measurement similarly:
+    `Normalized X. index actin` = Actin + normalization_factor
+  )
+
+# Inspect the new columns:
+print(head(nematode_samples %>% 
+             dplyr::select(Plate, RNA1, Actin, log_rna_conc, normalized_log_rna_conc,
+                    `Normalized GFLV concentration (ng/µL)`, `Normalized X. index actin`)))
+
+# ====================================================
+# STEP 6: (Optional) Save the Normalized Results to a CSV File
+# ====================================================
+write_csv(nematode_samples, "Nematode_Samples_with_Normalized_Values.csv")
+
+ggplot(nematode_samples, aes(x = `Number of nematodes`, y = `Normalized X. index actin`)) +
+  geom_point(color = "black", size = 1, alpha = 0.1) +
+  labs(
+    title = "Normalized X. index actin vs. Number of nematodes",
+    x = "Number of nematodes",
+    y = "Normalized X. index actin"
+  ) + geom_smooth(method = "lm", formula = y ~ log(x), se = F, color = "orange") + scale_y_reverse() +
+  theme_minimal()
+
+ggplot(nematode_samples, aes(x = `Number of nematodes`, y = `Actin`)) +
+  geom_point(color = "black", size = 1, alpha = 0.1) +
+  labs(
+    title = "X. index actin Cq vs. Number of nematodes",
+    x = "Number of nematodes",
+    y = "X. index actin Cq"
+  ) + geom_smooth(method = "lm", formula = y ~ log(x), se = F, color = "orange", span = 100) + scale_y_reverse() +
+  theme_minimal()
+
+
+
+```
+```{r}
+# -------------------------------
+# Step 1: Fit the Logarithmic Model
+# -------------------------------
+# We use the normalized actin values and the number of nematodes
+# The model is: Normalized Actin = a + b * log(Number of nematodes)
+actin_model <- lm(`Normalized X. index actin` ~ log(`Number of nematodes`), data = nematode_samples)
+summary(actin_model)
+
+# Extract the coefficients
+a <- coef(actin_model)[1]  # Intercept of the actin model
+b <- coef(actin_model)[2]  # Slope of the actin model
+
+# -------------------------------
+# Step 2: Calculate Predicted Actin and Extraction Efficiency
+# -------------------------------
+# For each sample, calculate the predicted normalized actin based on the fitted model.
+# Then define extraction efficiency as:
+#    extraction_efficiency = (observed normalized actin) / (predicted normalized actin)
+# A value of 1 indicates perfect extraction efficiency.
+nematode_samples <- nematode_samples %>%
+  mutate(
+    predicted_actin = a + b * log(`Number of nematodes`),
+    extraction_efficiency = `Normalized X. index actin` / predicted_actin
+  )
+
+# Inspect a few rows to check the new columns
+head(nematode_samples %>% 
+       select(Plate, `Number of nematodes`, `Normalized X. index actin`, predicted_actin, extraction_efficiency))
+
+# -------------------------------
+# Step 3: Calculate Final Viral RNA Concentration per Nematode
+# -------------------------------
+# We assume that the normalized viral RNA concentration (in ng/µL) is already computed
+# in the column 'Normalized GFLV concentration (ng/µL)'.
+#
+# To adjust for extraction efficiency, we divide the measured viral RNA concentration
+# by the extraction efficiency. In addition, to express the value per nematode,
+# we divide by the number of nematodes.
+#
+# The final calculation is:
+#    viral_RNA_per_nematode = (Normalized viral RNA concentration) / 
+#                              (Number of nematodes * extraction_efficiency)
+#
+# (This assumes that lower extraction efficiency would mean that the observed value is lower than
+# the true value, so we correct by dividing by efficiency.)
+nematode_samples <- nematode_samples %>%
+  mutate(
+    viral_RNA_per_nematode = `Normalized GFLV concentration (ng/µL)` / (`Number of nematodes` * extraction_efficiency)
+  )
+
+# Inspect the final calculated values
+head(nematode_samples %>% 
+       select(Plate, `Number of nematodes`, `Normalized X. index actin`, Actin,
+              `Normalized GFLV concentration (ng/µL)`, extraction_efficiency, viral_RNA_per_nematode))
+
+```
+```{r}
+# Filter and recode the data
+plot_data <- nematode_samples %>%
+  # Remove rows where Treatment contains "Viruliferous standard curve"
+  filter(!str_detect(Treatment, "Viruliferous standard curve")) %>%
+  filter(!str_detect(Treatment, "Aviruliferous standard curve")) %>%
+  # Recode any Treatment containing "healthy" (case-insensitive) as "Healthy"
+  mutate(TreatmentGroup = ifelse(str_detect(Treatment, regex("healthy", ignore_case = TRUE)),
+                                 "Healthy", Treatment))
+
+# Create the boxplot
+ggplot(plot_data, aes(x = TreatmentGroup, y = log(viral_RNA_per_nematode))) +
+  geom_boxplot(fill = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4"), outlier.color = "white") +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Optional: add jittered points for visibility
+  stat_compare_means(method = "anova") +
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) + 
+  theme_minimal() + theme(text = element_text(size =16))
+
+plot_data2 <- nematode_samples %>%
+  filter(Center == 1 | Perimeter == 1) %>% 
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter"
+  ))
+
+# Create the boxplot comparing viral_RNA_per_nematode across the two locations
+ggplot(plot_data2, aes(x = Location, y = log(viral_RNA_per_nematode), color = Treatment)) +
+  geom_boxplot(fill = "lightgreen", outlier.color = "darkgreen") +
+  geom_jitter(width = 0.2, alpha = 0.5) + stat_compare_means(method = "anova") +
+  labs(
+    title = "Normalized Viral RNA Concentration per Nematode: Center vs Perimeter",
+    x = "Location",
+    y = "Viral RNA per Nematode (ng/µL, normalized)"
+  ) +
+  theme_minimal()
+
+# Create the boxplot comparing viral_RNA_per_nematode across the two locations
+ggplot(plot_data2, aes(x = Location, y = log(viral_RNA_per_nematode), color = Treatment)) +
+  geom_boxplot(fill = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4","#4FAE62","#4DACD6","#C02D45","#0172B8","red4"))  +
+  labs(
+    title = "Normalized Viral RNA Concentration per Nematode: Center vs Perimeter",
+    x = "Location",
+    y = "Viral RNA per Nematode (ng/µL, normalized)"
+  ) +
+  theme_minimal() + scale_color_manual(values = c("black","black","black","black","black","black")) + theme(text = element_text(size))
+
+
+```
+```{r}
+
+plot_data$TreatmentGroup <- factor(plot_data$TreatmentGroup,
+  levels = c("Healthy",
+             "mutant F13 1EG802K",
+             "mutant GHu 1EK802G",
+             "wildtype F13",
+             "wildtype GHu")
+)
+
+ggviolin(
+  plot_data,
+  x = "TreatmentGroup",
+  y = "viral_RNA_per_nematode",
+  fill = "TreatmentGroup",
+  palette = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4"),
+  add = "jitter",
+  add.params = list(width = 0.2, alpha = 0.5)
+) +
+  stat_compare_means(method = "anova") +
+  scale_y_continuous(trans = scales::trans_new("log", transform = log, inverse = exp)) +
+  labs(x = "", y = "") +
+  theme_minimal() +
+  theme(text = element_text(size = 16))
+
+```
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(readr)
+
+# ------------------------------
+# Step 1: Read and Combine Data
+# ------------------------------
+data1 <- read_excel("Experiment1Combined_qPCR_Xindex.xlsx")
+data2 <- read_excel("Experiment2_2Combined_qPCR_Xindex.xlsx")
+combined_data <- bind_rows(data1, data2)
+
+# ------------------------------
+# Step 2: Filter for Experimental Samples
+# ------------------------------
+# Keep only samples with a positive number of nematodes and remove standard curve/virus purification rows.
+filtered_data <- combined_data %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Aviruliferous standard curve", "Virus purification serial dilution"))
+
+# ------------------------------
+# Step 3: Create a "Location" Variable and Remove Missing Locations
+# ------------------------------
+# Based on indicator columns: if Center == 1 then "Center", if Perimeter == 1 then "Perimeter"
+filtered_data <- filtered_data %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))  # Discard rows with no location
+
+# ------------------------------
+# Step 4: Calculate ΔCt (RNA1 - Actin)
+# ------------------------------
+filtered_data <- filtered_data %>%
+  mutate(deltaCt = RNA1 - Actin)
+
+# ------------------------------
+# Step 5: Interplate Calibration Using Shared Calibrator Samples
+# ------------------------------
+# Identify calibrator samples as those sharing the same "Name" across plates.
+calibrator_names <- filtered_data %>%
+  group_by(Name) %>%
+  summarise(n_plates = n_distinct(Plate)) %>%
+  filter(n_plates > 1) %>%
+  pull(Name)
+
+calibrators <- filtered_data %>% filter(Name %in% calibrator_names)
+
+# Compute the global (across all plates) average ΔCt for each calibrator Name.
+global_calib <- calibrators %>% 
+  group_by(Name) %>% 
+  summarise(global_deltaCt = mean(deltaCt, na.rm = TRUE))
+
+# Compute the average ΔCt for each calibrator on each Plate.
+plate_calib <- calibrators %>% 
+  group_by(Plate, Name) %>% 
+  summarise(plate_deltaCt = mean(deltaCt, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  left_join(global_calib, by = "Name") %>%
+  mutate(correction = global_deltaCt - plate_deltaCt)
+
+# Average the correction factors per Plate.
+plate_correction <- plate_calib %>% 
+  group_by(Plate) %>% 
+  summarise(corr_factor = mean(correction, na.rm = TRUE))
+
+# Merge the plate correction back into the main dataset.
+filtered_data <- filtered_data %>% 
+  left_join(plate_correction, by = "Plate") %>%
+  mutate(corr_factor = if_else(is.na(corr_factor), 0, corr_factor),
+         adj_deltaCt = deltaCt + corr_factor)
+
+# ------------------------------
+# Step 6: ΔΔCt Normalization Using Healthy Controls
+# ------------------------------
+# Use healthy control samples (Treatment containing "healthy") to define the calibrator.
+calibrator_adj <- filtered_data %>%
+  filter(grepl("healthy", tolower(Treatment))) %>%
+  summarise(calib = mean(adj_deltaCt, na.rm = TRUE)) %>%
+  pull(calib)
+
+filtered_data <- filtered_data %>%
+  mutate(deltaDeltaCt = adj_deltaCt - calibrator_adj,
+         relative_expression = 2^(-deltaDeltaCt))
+
+# ------------------------------
+# Step 7: Add a Threshold Line for Cq = 37
+# ------------------------------
+# Here we assume that a Cq of 37 for the target would correspond to a ΔCt = 37.
+# Then the threshold ΔΔCt is (37 - calibrator_adj) and its relative expression is:
+threshold_deltaDeltaCt <- 20 - calibrator_adj
+threshold_rel_exp <- 2^(-threshold_deltaDeltaCt)
+
+# ------------------------------
+# Step 8: Visualization with Violin Plots
+# ------------------------------
+p <- ggplot(filtered_data, aes(x = Treatment, y = log(relative_expression), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.7) + scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  geom_hline(yintercept = threshold_rel_exp, linetype = "dashed", color = "red") +
+  labs(x = "", y = "") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+
+print(p)
+
+
+```
+
+
+```{r}
+ggplot(filtered_data, aes(x = `Number of nematodes`, y = log(relative_expression), color = Treatment)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ Location) +
+  geom_hline(yintercept = threshold_rel_exp, linetype = "dashed", color = "red") +
+  labs(x = "Number of Nematodes",
+       y = "Relative Expression (2^-ΔΔCt)") +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ------------------------------
+# Step 9: Regression Model Analysis
+# ------------------------------
+# Fit a model to assess the influence of nematode count (log-transformed), Treatment, and Location.
+lm_model <- lm(relative_expression ~ log(`Number of nematodes`) * Treatment * Location, data = filtered_data)
+summary(lm_model)
+
+
+
+```
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+
+# ------------------------------
+# Checkpoint 1: Raw Ct Summaries and Distributions
+# ------------------------------
+# Summary statistics for raw Ct values (RNA1 and Actin)
+raw_summary <- filtered_data %>%
+  summarise(
+    mean_RNA1 = mean(RNA1, na.rm = TRUE),
+    sd_RNA1 = sd(RNA1, na.rm = TRUE),
+    mean_Actin = mean(Actin, na.rm = TRUE),
+    sd_Actin = sd(Actin, na.rm = TRUE)
+  )
+print(raw_summary)
+
+# Histograms of RNA1 and Actin Ct values by Plate
+ggplot(filtered_data, aes(x = RNA1, fill = as.factor(Plate))) +
+  geom_histogram(alpha = 0.6, bins = 30, position = "identity") +
+  labs(title = "Distribution of RNA1 (Target Ct) by Plate", x = "RNA1 Ct", fill = "Plate") +
+  theme_minimal(base_size = 16)
+
+ggplot(filtered_data, aes(x = Actin, fill = as.factor(Plate))) +
+  geom_histogram(alpha = 0.6, bins = 30, position = "identity") +
+  labs(title = "Distribution of Actin (Reference Ct) by Plate", x = "Actin Ct", fill = "Plate") +
+  theme_minimal(base_size = 16)
+
+# ------------------------------
+# Checkpoint 2: Raw ΔCt (RNA1 - Actin) by Plate
+# ------------------------------
+ggplot(filtered_data, aes(x = deltaCt, fill = as.factor(Plate))) +
+  geom_boxplot() +
+  labs(title = "Raw ΔCt Distribution by Plate", x = "ΔCt (RNA1 - Actin)", fill = "Plate") +
+  theme_minimal(base_size = 16)
+
+# ------------------------------
+# Checkpoint 3: Adjusted ΔCt (after Calibration) by Plate
+# ------------------------------
+ggplot(filtered_data, aes(x = adj_deltaCt, fill = as.factor(Plate))) +
+  geom_boxplot() +
+  labs(title = "Adjusted ΔCt (after Calibration) by Plate", x = "Adjusted ΔCt", fill = "Plate") +
+  theme_minimal(base_size = 16)
+
+# ------------------------------
+# Checkpoint 4: Distribution of Plate Correction Factors
+# ------------------------------
+# Assuming 'plate_correction' dataframe is available from your calibration step:
+ggplot(plate_correction, aes(x = corr_factor)) +
+  geom_histogram(bins = 20, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Plate Correction Factors", x = "Correction Factor", y = "Count") +
+  theme_minimal(base_size = 16)
+
+# ------------------------------
+# Checkpoint 5: Relative Expression by Treatment
+# ------------------------------
+ggplot(filtered_data, aes(x = Treatment, y = log(relative_expression), fill = Treatment)) +
+  geom_boxplot() + facet_wrap(~ Location) +
+  labs(title = "Relative Expression (2^-ΔΔCt) by Treatment", x = "Treatment", y = "Relative Expression") +
+  theme_minimal(base_size = 16) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ------------------------------
+# Checkpoint 6: Comparison of Raw ΔCt vs. Adjusted ΔCt
+# ------------------------------
+ggplot(filtered_data, aes(x = deltaCt, y = adj_deltaCt, color = as.factor(Plate))) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(title = "Raw ΔCt vs. Adjusted ΔCt", x = "Raw ΔCt", y = "Adjusted ΔCt", color = "Plate") +
+  theme_minimal(base_size = 16)
+
+
+```
+```{r}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(readr)
+
+# ------------------------------
+# Step 1: Read and Combine Data
+# ------------------------------
+data1 <- read_excel("Experiment1Combined_qPCR_Xindex.xlsx")
+data2 <- read_excel("Experiment2Combined_qPCR_Xindex.xlsx")
+combined_data <- bind_rows(data1, data2)
+
+# ------------------------------
+# Step 2: Filter for Experimental Samples
+# ------------------------------
+# Exclude standard curves, virus purification dilutions, and NTC if present.
+filtered_data <- combined_data %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Aviruliferous standard curve", 
+                           "Virus purification serial dilution", 
+                           "NTC"))
+
+# ------------------------------
+# Step 3: Create a "Location" Variable and Remove Missing Locations
+# ------------------------------
+filtered_data <- filtered_data %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))
+
+# ------------------------------
+# Step 4: Adjust Actin Using Number of Nematodes
+# ------------------------------
+# We assume that the number of nematodes is a good predictor of Actin Cq.
+# Fit a linear model: Actin ~ log(Number of nematodes)
+actin_model <- lm(Actin ~ log(`Number of nematodes`), data = filtered_data)
+
+# Get the predicted Actin values from this model.
+filtered_data <- filtered_data %>%
+  mutate(predicted_Actin = predict(actin_model, newdata = .),
+         # Use the residual (observed - predicted) as the adjustment:
+         norm_Actin = Actin - predicted_Actin)
+
+# (Optionally, you could directly use the residuals via resid(actin_model) if preferred.)
+
+# ------------------------------
+# Step 5: Compute Adjusted ΔCt
+# ------------------------------
+# Rather than raw ΔCt (RNA1 - Actin), we use the normalized Actin.
+filtered_data <- filtered_data %>%
+  mutate(deltaCt_adj = RNA1 - norm_Actin)
+
+# ------------------------------
+# Step 6: ΔΔCt Normalization Using Healthy Controls
+# ------------------------------
+# Define the calibrator as the mean adjusted ΔCt for healthy controls.
+calibrator_adj <- filtered_data %>%
+  filter(grepl("healthy", tolower(Treatment))) %>%
+  summarise(calib = mean(deltaCt_adj, na.rm = TRUE)) %>%
+  pull(calib)
+
+# Compute ΔΔCt and relative expression.
+filtered_data <- filtered_data %>%
+  mutate(deltaDeltaCt_adj = deltaCt_adj - calibrator_adj,
+         relative_expression_adj = 2^(-deltaDeltaCt_adj))
+
+# ------------------------------
+# Step 7: Visualization with Violin Plots
+# ------------------------------
+# Visualize the adjusted relative expression by Treatment, faceted by Location.
+p <- ggplot(filtered_data, aes(x = Treatment, y = log(relative_expression_adj), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.15, size = 1, alpha = 0.7) + scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  geom_hline(yintercept = threshold_rel_exp, linetype = "dashed", color = "red") +
+  labs(x = "", y = "") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+print(p)
+
+# ------------------------------
+# (Optional) Diagnostic: Plot Actin vs. log(Number of nematodes)
+# ------------------------------
+p2 <- ggplot(filtered_data, aes(x = log(`Number of nematodes`), y = Actin)) +
+  geom_point(alpha = 0.7) +
+  geom_line(aes(y = predicted_Actin), color = "red") +
+  labs(x = "Log(Number of nematodes)", y = "Actin Cq") +
+  theme_minimal(base_size = 20)
+print(p2)
+
+
+
+ggplot(filtered_data, aes(x = `Number of nematodes`, y = log(relative_expression_adj), color = Treatment)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Log(Number of Nematodes)", y = "Relative Expression (2^-ΔΔCt)") +
+  theme_minimal(base_size = 20)
+
+# Fit a linear model on log-transformed relative expression
+model <- lm(log(relative_expression_adj) ~ Treatment + log(`Number of nematodes`) + Location,
+            data = filtered_data)
+summary(model)
+
+# Optional: Visualize the model residuals
+par(mfrow = c(2, 2))
+plot(model)
+
+# Obtain estimated marginal means for the Treatment factor
+emm_treatment <- emmeans(model, ~ Treatment)
+
+# Pairwise comparisons with Tukey adjustment
+pairwise_comparisons <- pairs(emm_treatment, adjust = "tukey")
+print(pairwise_comparisons)
+
+# Optionally, create a compact letter display (CLD)
+cld_treatment <- cld(emm_treatment, adjust = "tukey")
+print(cld_treatment)
+
+
+```
+
+
+```{r}
+
+# ------------------------------
+# Step 4: Assume qPCR normalization (ΔΔCt) has been performed already 
+# and that the variable relative_expression_adj is available.
+# ------------------------------
+# (If not, insert the previous normalization steps here.)
+# For the purposes of this analysis, we assume filtered_data already has:
+#    relative_expression_adj: relative viral RNA expression (2^-ΔΔCt adjusted)
+
+# ------------------------------
+# Step 5: Exclude Healthy Control Samples
+# ------------------------------
+# Remove samples that are labeled as healthy controls.
+filtered_data_no_healthy <- filtered_data %>%
+  filter(!grepl("healthy", tolower(Treatment)))
+
+# ------------------------------
+# Step 6: Fit a Linear Model
+# ------------------------------
+# We use log-transformed relative expression as the outcome.
+model_no_healthy <- lm(log(relative_expression_adj) ~ Treatment + log(`Number of nematodes`) + Location,
+                       data = filtered_data_no_healthy)
+summary(model_no_healthy)
+
+# ------------------------------
+# Step 7: Post-hoc Pairwise Comparisons for Treatment
+# ------------------------------
+emm_no_healthy <- emmeans(model_no_healthy, ~ Treatment)
+pairwise_comparisons <- pairs(emm_no_healthy, adjust = "tukey")
+print(pairwise_comparisons)
+
+# Optional: Create a compact letter display for a quick summary
+cld_no_healthy <- cld(emm_no_healthy, adjust = "tukey")
+print(cld_no_healthy)
+
+# ------------------------------
+# Step 8: Visualize the Results
+# ------------------------------
+# Violin plots of relative expression by Treatment, faceted by Location.
+p <- ggplot(filtered_data_no_healthy, aes(x = Treatment, y = log(relative_expression_adj), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.15, size = filtered_data_no_healthy$`Number of nematodes`/8, alpha = 0.5) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(x = "Viral Treatment", y = "Relative Expression (2^-ΔΔCt adjusted)") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+print(p)
+
+emm_by_loc <- emmeans(model_no_healthy, ~ Treatment * Location,  
+                      at = list(`Number of nematodes` = mean(log(filtered_data_no_healthy$`Number of nematodes`))))
+print(emm_by_loc)
+pairs(emm_by_loc, adjust = "sidak")
+
+
+
+
+
+
+
+model_mixed <- lmer(log(relative_expression_adj) ~ Treatment * Location + log(`Number of nematodes`) +
+                      (1 | Plate) + (1 | Basin),
+                    data = filtered_data_no_healthy)
+summary(model_mixed)
+
+# Obtain estimated marginal means by Treatment within each Location, adjusting for the covariate
+emm_mixed <- emmeans(model_mixed, ~ Treatment | Location, 
+                     at = list(`log(Number of nematodes)` = mean(log(filtered_data_no_healthy$`Number of nematodes`))))
+print(emm_mixed)
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_mixed <- pairs(emm_mixed, adjust = "tukey")
+print(pairwise_mixed)
+
+
+```
+
+
+```{r}
+
+library(lme4)
+library(lmerTest)  # for p-values
+library(emmeans)
+
+# Fit a mixed-effects model:
+# - Fixed effects: Treatment, Location, log(Number of nematodes) and the Treatment*Location interaction.
+# - Random intercepts: Plate and Basin.
+model_mixed <- lmer(log(relative_expression_adj) ~ Treatment * Location + log(`Number of nematodes`) +
+                      (1 | Plate) + (1 | Basin),
+                    data = filtered_data_no_healthy)
+summary(model_mixed)
+
+# Obtain estimated marginal means by Treatment within each Location, adjusting for the covariate
+emm_mixed <- emmeans(model_mixed, ~ Treatment | Location, 
+                     at = list(`log(Number of nematodes)` = mean(log(filtered_data_no_healthy$`Number of nematodes`))))
+print(emm_mixed)
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_mixed <- pairs(emm_mixed, adjust = "tukey")
+print(pairwise_mixed)
+
+
+```
+
+```{r}
+
+library(lme4)
+library(lmerTest)  # for p-values
+library(emmeans)
+
+# Fit a mixed-effects model:
+# - Fixed effects: Treatment, Location, log(Number of nematodes) and the Treatment*Location interaction.
+# - Random intercepts: Plate and Basin.
+model_mixed <- lmer(log(relative_expression_adj) ~ Treatment * Location + log(`Number of nematodes`) +
+                      (1 | Plate) + (1 | Basin),
+                    data = filtered_data_no_healthy)
+summary(model_mixed)
+
+# Obtain estimated marginal means by Treatment within each Location, adjusting for the covariate
+emm_mixed <- emmeans(model_mixed, ~ Treatment | Location, 
+                     at = list(`log(Number of nematodes)` = mean(log(filtered_data_no_healthy$`Number of nematodes`))))
+print(emm_mixed)
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_mixed <- pairs(emm_mixed, adjust = "tukey")
+print(pairwise_mixed)
+
+
+```
+
+
+```{r}
+
+nematode_samples <- nematode_samples %>%
+  mutate(
+    actin_corrected = `Actin` / `extraction_efficiency`,
+    gflv_corrected = `Normalized GFLV concentration (ng/µL)` / `extraction_efficiency`
+  )
+
+ggplot(nematode_samples, aes(x = `Number of nematodes`, y = log10(actin_corrected))) +
+  geom_jitter(color = "black", alpha = 0.2) +
+  geom_smooth(method = "lm", formula = y ~ log(x), se = TRUE, color = "orange") +
+  labs(
+    x = "Number of Nematodes",
+    y = "Log10(Corrected Actin)",
+    title = "Number of Nematodes vs. Log10 Corrected Actin"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 14)) + scale_y_reverse() 
+
+# --- Plot 2: Corrected Actin vs. Normalized GFLV Concentration ---
+ggplot(nematode_samples, aes(x = `Number of nematodes`, y = gflv_corrected, color = Treatment)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(
+    x = "Corrected Actin",
+    y = "Normalized GFLV Concentration (ng/µL)",
+    title = "Corrected Actin vs. Normalized GFLV Concentration"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 14)) + ylim(-0.005,0.027)
+
+
+```
+
+
+
+
+```{r}
+
+# Prepare the data by filtering out unwanted treatments and ensuring only samples with a location
+plot_data <- nematode_samples %>%
+  filter(!str_detect(Treatment, "Viruliferous standard curve"),
+         !str_detect(Treatment, "Aviruliferous standard curve"),
+         (Center == 1 | Perimeter == 1)) %>%
+  mutate(
+    # Recode any Treatment containing "healthy" (case-insensitive) as "Healthy"
+    TreatmentGroup = ifelse(str_detect(Treatment, regex("healthy", ignore_case = TRUE)),
+                            "Healthy", Treatment),
+    # Create a Location variable from the Center and Perimeter columns
+    Location = case_when(
+      Center == 1 ~ "Center",
+      Perimeter == 1 ~ "Perimeter"
+    ),
+    # Combine TreatmentGroup and Location into one grouping variable
+    Group = paste(TreatmentGroup, Location, sep = ": ")
+  )
+
+#shapiro.test(log(plot_data$`Normalized GFLV concentration (ng/µL)`))
+
+# Create a custom order for Group so that for each treatment the "Center" comes before "Perimeter".
+# (Here we order the treatment groups alphabetically. If you want a custom order, specify it in the levels.)
+unique_treatments <- sort(unique(plot_data$TreatmentGroup))
+group_levels <- unlist(lapply(unique_treatments, function(t) {
+  c(paste(t, "Center", sep = ": "), paste(t, "Perimeter", sep = ": "))
+}))
+# Only include levels that are present in the data
+group_levels <- group_levels[group_levels %in% unique(plot_data$Group)]
+
+# Set the factor order of Group accordingly
+plot_data <- plot_data %>%
+  mutate(Group = factor(Group, levels = group_levels))
+
+# Now create the boxplot with the ordered groups on the x-axis
+ggplot(plot_data, aes(x = Group, y = log(viral_RNA_per_nematode))) +
+  geom_boxplot(fill = c("#4FAE62","#4FAE62","#4DACD6","#4DACD6","#C02D45","#C02D45","#0172B8","#0172B8","red4","red4"), outlier.color = "white") +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  labs(
+    x = "",
+    y = ""
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 16),axis.text.x = element_text(angle = 0, hjust = 1)) +coord_fixed(ratio=.5)
+
+
+# Create a data frame with only Center and Perimeter samples and a new Location variable
+location_data <- nematode_samples %>%
+  filter(Center == 1 | Perimeter == 1) %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter"
+  ))
+
+# Perform the Mann-Whitney test comparing viral_RNA_per_nematode between Center and Perimeter
+test_result <- wilcox.test(`Normalized GFLV concentration (ng/µL)` ~ Location, data = location_data, alternative = "two.sided")
+
+# Print the results of the test
+print(test_result)
+
+library(broom)
+
+# For each treatment group, run a Wilcoxon rank-sum test comparing log(viral_RNA_per_nematode)
+# between samples collected at the Center vs. the Perimeter.
+comparison_results <- plot_data %>%
+  group_by(TreatmentGroup) %>%
+  # If needed, you can also filter to ensure that both locations are represented:
+  filter(n_distinct(Location) > 1) %>%
+  do(tidy(wilcox.test(log(viral_RNA_per_nematode) ~ Location, data = .))) %>%
+  ungroup()
+
+# View the results
+print(comparison_results)
+
+
+qPCR_summary <- nematode_samples %>%
+  # Only include samples with a location defined
+  filter(Center == 1 | Perimeter == 1) %>%
+  mutate(
+    # Use your Treatment column directly (or recode if needed)
+    TreatmentGroup = Treatment,
+    # Create Location based on Center/Perimeter flags
+    Location = case_when(
+      Center == 1 ~ "Center",
+      Perimeter == 1 ~ "Perimeter"
+    ),
+    # Create an Experiment flag: if Basin starts with "B" then Exp2, otherwise Exp1.
+    Basin = as.character(Basin),  # convert to character so we can check for "B"
+    Experiment = if_else(str_detect(Basin, "^B"), "Exp2", "Exp1")
+  ) %>%
+  group_by(Basin, Experiment, TreatmentGroup, Location, Plate) %>%
+  summarise(avg_viral = mean(viral_RNA_per_nematode, na.rm = TRUE), .groups = "drop")
+
+new_titer <- qPCR_summary %>%
+  group_by(TreatmentGroup, Location) %>%
+  dplyr::summarise(avg_viral = mean(avg_viral, na.rm = TRUE))
+
+```
+
+
+
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+
+# ------------------------------
+# Step 1: Read and Combine Data
+# ------------------------------
+data1 <- read_excel("Experiment1Combined_qPCR_Xindex.xlsx")
+data2 <- read_excel("Experiment2Combined_qPCR_Xindex.xlsx")
+combined_data <- bind_rows(data1, data2)
+
+# ------------------------------
+# Step 2: Separate Standard Curve Samples from Experimental Samples
+# ------------------------------
+# For the standard curve, use only those rows where Viral RNA concentration is non-missing.
+std_curve <- combined_data %>%
+  filter(grepl("standard curve", Treatment, ignore.case = TRUE),
+         !is.na(`Viral RNA concentration`) & `Viral RNA concentration` != 0)
+
+# Experimental samples: exclude virus purification dilutions and NTC.
+exp_data <- combined_data %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Virus purification serial dilution", "NTC"))
+
+# ------------------------------
+# Step 3: Create a "Location" Variable for Experimental Data
+# ------------------------------
+exp_data <- exp_data %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))
+
+# ------------------------------
+# Step 4: Build the Standard Curve Calibration Model
+# ------------------------------
+# We assume that the viral RNA concentration (in, e.g., ng/µL or copies) follows a log-linear relationship with RNA1.
+# Fit on the log10 scale.
+std_model <- lm(log10(`Viral RNA concentration`) ~ RNA1, data = std_curve)
+summary(std_model)
+
+# ------------------------------
+# Step 5: Predict Absolute Viral RNA Concentration for Experimental Samples
+# ------------------------------
+exp_data <- exp_data %>%
+  mutate(predicted_log10_viral = predict(std_model, newdata = exp_data),
+         predicted_viral_conc = 10^(predicted_log10_viral))
+# Note: For aviruliferous samples (expected to have no RNA1 signal), predicted_viral_conc should be very low.
+
+# ------------------------------
+# Step 6: Validate Actin Amplification as a Proxy for Input
+# ------------------------------
+# Check that Actin Cq values decrease (i.e., amplification increases) with increasing number of nematodes.
+actin_model <- lm(Actin ~ log(`Number of nematodes`), data = exp_data)
+summary(actin_model)
+
+ggplot(exp_data, aes(x = log(`Number of nematodes`), y = Actin)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(x = "Log(Number of Nematodes)", y = "Actin Cq") +
+  theme_minimal(base_size = 20)
+
+# ------------------------------
+# Step 7: Model the Impact of Treatment on Absolute Viral RNA Concentration
+# ------------------------------
+# Here we use a mixed-effects model to account for plate-to-plate variability (and Basin if needed).
+# We include Treatment, Location, and log(Number of nematodes) as fixed effects.
+model_abs <- lmer(log(predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) +
+                    (1 | Plate) + (1 | Basin), data = exp_data)
+summary(model_abs)
+
+# ------------------------------
+# Step 8: Post-hoc Comparisons and Estimated Marginal Means
+# ------------------------------
+emm_abs <- emmeans(model_abs, ~ Treatment | Location,
+                   at = list(`log(Number of nematodes)` = mean(log(exp_data$`Number of nematodes`), na.rm=TRUE)))
+print(emm_abs)
+pairs(emm_abs, adjust = "tukey")
+
+# ------------------------------
+# Step 9: Visualization with Violin Plots
+# ------------------------------
+# Violin plots of predicted viral RNA concentration by Treatment, faceted by Location.
+p <- ggplot(exp_data, aes(x = Treatment, y = log(predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = TRUE) +
+  geom_jitter(width = 0.15, size = exp_data$`Number of nematodes`/5, alpha = 0.5) + scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(x = "Viral Treatment", y = "Predicted Viral RNA Concentration") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+print(p)
+
+
+
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+
+# ------------------------------
+# Step 1: Read and Combine Data
+# ------------------------------
+data1 <- read_excel("Experiment1Combined_qPCR_Xindex.xlsx")
+data2 <- read_excel("Experiment2_2Combined_qPCR_Xindex.xlsx")
+combined_data <- bind_rows(data1, data2)
+
+# ------------------------------
+# Step 2: Separate Standard Curve and Experimental Samples
+# ------------------------------
+# Standard curve samples: use those with Treatment "Aviruliferous standard curve" 
+# and a non-missing, nonzero "Viral RNA concentration"
+std_curve <- combined_data %>%
+  filter(grepl("standard curve", Treatment, ignore.case = TRUE),
+         !is.na(`Viral RNA concentration`), `Viral RNA concentration` != 0)
+
+# Experimental samples: exclude virus purification dilutions and NTC.
+exp_data <- combined_data %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Virus purification serial dilution", "NTC"))
+
+# ------------------------------
+# Step 3: Create a "Location" Variable for Experimental Data
+# ------------------------------
+exp_data <- exp_data %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))
+
+# ------------------------------
+# Step 4: Build the Standard Curve Calibration Model
+# ------------------------------
+# Fit a model on the log10 scale to relate RNA1 Cq to the known viral concentration.
+std_model <- lm(log10(`Viral RNA concentration`) ~ RNA1, data = std_curve)
+summary(std_model)
+
+# ------------------------------
+# Step 5: Predict Absolute Viral RNA Concentration for Experimental Samples
+# ------------------------------
+exp_data <- exp_data %>%
+  mutate(predicted_log10_viral = predict(std_model, newdata = exp_data),
+         predicted_viral_conc = 10^(predicted_log10_viral))
+# (For aviruliferous samples, RNA1 is high so predicted_viral_conc should be very low.)
+
+# ------------------------------
+# Step 6: Interplate Calibration Using Shared Calibrator Samples
+# ------------------------------
+# Identify calibrator samples as those with identical "Name" present on >1 plate.
+calibrator_names <- exp_data %>%
+  group_by(Name) %>%
+  summarise(n_plates = n_distinct(Plate)) %>%
+  filter(n_plates > 1) %>%
+  pull(Name)
+
+calibrators <- exp_data %>% filter(Name %in% calibrator_names)
+
+# For each calibrator Name, compute the global average predicted_log10_viral.
+global_calib <- calibrators %>% 
+  group_by(Name) %>% 
+  summarise(global_avg = mean(predicted_log10_viral, na.rm = TRUE))
+
+# For each calibrator on each Plate, compute the plate-specific average predicted_log10_viral.
+plate_calib <- calibrators %>% 
+  group_by(Plate, Name) %>% 
+  summarise(plate_avg = mean(predicted_log10_viral, na.rm = TRUE), .groups = "drop") %>%
+  left_join(global_calib, by = "Name") %>%
+  mutate(diff = global_avg - plate_avg)
+
+# For each Plate, average these differences to get a correction factor.
+plate_correction <- plate_calib %>% 
+  group_by(Plate) %>% 
+  summarise(correction = mean(diff, na.rm = TRUE))
+
+# Merge the correction factor back into the experimental data and adjust predictions.
+exp_data <- exp_data %>% 
+  left_join(plate_correction, by = "Plate") %>%
+  mutate(correction = if_else(is.na(correction), 0, correction),
+         adjusted_predicted_log10_viral = predicted_log10_viral + correction,
+         adjusted_predicted_viral_conc = 10^(adjusted_predicted_log10_viral))
+
+# ------------------------------
+# (Optional) Compare Calibration Adjustment
+# ------------------------------
+ggplot(exp_data, aes(x = predicted_log10_viral, y = adjusted_predicted_log10_viral, color = as.factor(Plate))) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(x = "Original Predicted log10 Viral", y = "Adjusted Predicted log10 Viral", color = "Plate") +
+  theme_minimal(base_size = 16)
+
+# ------------------------------
+# Step 7: Statistical Modeling Using a Mixed-Effects Model
+# ------------------------------
+# Model the log-transformed adjusted predicted viral concentration as a function of Treatment, Location, and log(Number of nematodes).
+model_abs <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) +
+                    (1 | Plate) + (1 | Basin), data = exp_data)
+summary(model_abs)
+
+# ------------------------------
+# Step 8: Post-hoc Comparisons (Excluding any healthy controls if desired)
+# ------------------------------
+# If you wish to exclude healthy controls, filter them out before computing EMMs:
+exp_data_no_healthy <- exp_data %>%
+  filter(!grepl("healthy", tolower(Treatment)))
+
+model_abs_no_healthy <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) +
+                               (1 | Plate) + (1 | Basin), data = exp_data_no_healthy)
+emm_abs <- emmeans(model_abs_no_healthy, ~ Treatment | Location,
+                   at = list(`log(Number of nematodes)` = mean(log(exp_data_no_healthy$`Number of nematodes`), na.rm = TRUE)))
+print(emm_abs)
+pairs(emm_abs, adjust = "tukey")
+
+# ------------------------------
+# Step 9: Visualization with Violin Plots
+# ------------------------------
+p <- ggplot(exp_data_no_healthy, aes(x = Treatment, y = log(adjusted_predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.1, size = exp_data_no_healthy$`Number of nematodes`/8, alpha = 0.5, color = as.factor(exp_data_no_healthy$`Plate`)) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location + Replicate) +
+  labs(x = "Viral Treatment", y = "Adjusted Predicted Viral RNA Concentration") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+print(p)
+
+```
+
+
+## Split into each replicate and analyze individually
+
+```{r}
+rep1 <- read_excel("Experiment1Combined_qPCR_Xindex.xlsx")
+# Standard curve samples from Replicate 1
+std_rep1 <- rep1 %>%
+  filter(grepl("standard curve", Treatment, ignore.case = TRUE),
+         !is.na(`Viral RNA concentration`), `Viral RNA concentration` != 0)
+
+# Experimental samples from Replicate 1 (exclude virus purification dilutions and NTC)
+exp_rep1 <- rep1 %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Virus purification serial dilution", "NTC"))
+
+# Create a Location variable: assign "Center" if Center==1, "Perimeter" if Perimeter==1
+exp_rep1 <- exp_rep1 %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))
+
+# Build the standard curve model for Replicate 1 (on the log10 scale)
+std_model_rep1 <- lm(log10(`Viral RNA concentration`) ~ RNA1, data = std_rep1)
+summary(std_model_rep1)
+
+# Predict absolute viral RNA concentration for Replicate 1 experimental samples
+exp_rep1 <- exp_rep1 %>%
+  mutate(predicted_log10_viral = predict(std_model_rep1, newdata = exp_rep1),
+         predicted_viral_conc = 10^(predicted_log10_viral))
+
+# Interplate calibration using shared calibrator samples (same Name on >1 Plate)
+calib_names_rep1 <- exp_rep1 %>%
+  group_by(Name) %>%
+  summarise(n_plates = n_distinct(Plate)) %>%
+  filter(n_plates > 1) %>%
+  pull(Name)
+
+calibrators_rep1 <- exp_rep1 %>% filter(Name %in% calib_names_rep1)
+
+global_calib_rep1 <- calibrators_rep1 %>% 
+  group_by(Name) %>% 
+  summarise(global_avg = mean(predicted_log10_viral, na.rm = TRUE))
+
+plate_calib_rep1 <- calibrators_rep1 %>% 
+  group_by(Plate, Name) %>% 
+  summarise(plate_avg = mean(predicted_log10_viral, na.rm = TRUE), .groups = "drop") %>%
+  left_join(global_calib_rep1, by = "Name") %>%
+  mutate(diff = global_avg - plate_avg)
+
+plate_corr_rep1 <- plate_calib_rep1 %>% 
+  group_by(Plate) %>% 
+  summarise(correction = mean(diff, na.rm = TRUE))
+
+exp_rep1 <- exp_rep1 %>% 
+  left_join(plate_corr_rep1, by = "Plate") %>%
+  mutate(correction = if_else(is.na(correction), 0, correction),
+         adjusted_predicted_log10_viral = predicted_log10_viral + correction,
+         adjusted_predicted_viral_conc = 10^(adjusted_predicted_log10_viral))
+
+# Fit a mixed-effects model for Replicate 1 (log-transformed adjusted viral conc.)
+model_rep1 <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) +
+                     (1 | Plate) + (1 | Basin), data = exp_rep1)
+summary(model_rep1)
+
+
+
+```
+
+
+```{r}
+rep2 <- read_excel("Experiment2Combined_qPCR_Xindex.xlsx")
+
+# Standard curve samples from Replicate 2
+std_rep2 <- rep2 %>%
+  filter(grepl("standard curve", Treatment, ignore.case = TRUE),
+         !is.na(`Viral RNA concentration`), `Viral RNA concentration` != 0)
+
+# Experimental samples from Replicate 2 (exclude virus purification dilutions and NTC)
+exp_rep2 <- rep2 %>%
+  filter(`Number of nematodes` > 0,
+         !Treatment %in% c("Virus purification standard curve", "NTC"))
+
+# Create a Location variable for Replicate 2
+exp_rep2 <- exp_rep2 %>%
+  mutate(Location = case_when(
+    Center == 1 ~ "Center",
+    Perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Location))
+
+# Build the standard curve model for Replicate 2 (on the log10 scale)
+std_model_rep2 <- lm(log10(`Viral RNA concentration`) ~ RNA1, data = std_rep2)
+summary(std_model_rep2)
+
+# Predict absolute viral RNA concentration for Replicate 2 experimental samples
+exp_rep2 <- exp_rep2 %>%
+  mutate(predicted_log10_viral = predict(std_model_rep2, newdata = exp_rep2),
+         predicted_viral_conc = 10^(predicted_log10_viral))
+
+# Interplate calibration for Replicate 2
+calib_names_rep2 <- exp_rep2 %>%
+  group_by(Name) %>%
+  summarise(n_plates = n_distinct(Plate)) %>%
+  filter(n_plates > 0) %>%
+  pull(Name)
+
+calibrators_rep2 <- exp_rep2 %>% filter(Name %in% calib_names_rep2)
+
+global_calib_rep2 <- calibrators_rep2 %>% 
+  group_by(Name) %>% 
+  summarise(global_avg = mean(predicted_log10_viral, na.rm = TRUE))
+
+plate_calib_rep2 <- calibrators_rep2 %>% 
+  group_by(Plate, Name) %>% 
+  summarise(plate_avg = mean(predicted_log10_viral, na.rm = TRUE), .groups = "drop") %>%
+  left_join(global_calib_rep2, by = "Name") %>%
+  mutate(diff = global_avg - plate_avg)
+
+plate_corr_rep2 <- plate_calib_rep2 %>% 
+  group_by(Plate) %>% 
+  summarise(correction = mean(diff, na.rm = TRUE))
+
+exp_rep2 <- exp_rep2 %>% 
+  left_join(plate_corr_rep2, by = "Plate") %>%
+  mutate(correction = if_else(is.na(correction), 0, correction),
+         adjusted_predicted_log10_viral = predicted_log10_viral + correction,
+         adjusted_predicted_viral_conc = 10^(adjusted_predicted_log10_viral))
+
+# Fit a mixed-effects model for Replicate 2
+model_rep2 <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) +
+                     (1 | Plate) + (1 | Basin), data = exp_rep2)
+summary(model_rep2)
+
+model <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment + Location + log(`Number of nematodes`) + 
+               (1 | Plate) + (1 | Basin), data = exp_data)
+summary(model)
+```
+
+```{r}
+
+# Combine the processed experimental data from both replicates
+combined_exp <- bind_rows(exp_rep1, exp_rep2)
+
+# Fit a combined mixed-effects model; note that Replicate is already in the data.
+model_combined <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + log(`Number of nematodes`) + Replicate +
+                         (1 | Plate) + (1 | Basin), data = combined_exp)
+summary(model_combined)
+
+# ------------------------------
+# Check Normality of Residuals for Combined Model
+# ------------------------------
+resid_combined <- residuals(model_combined)
+shapiro_result <- shapiro.test(resid_combined)
+print(shapiro_result)
+
+qqnorm(resid_combined, main = "Q-Q Plot of Combined Model Residuals")
+qqline(resid_combined, col = "red")
+
+# If residuals are non-normal, consider an alternative model (e.g., Gamma GLMM)
+# library(glmmTMB)
+# model_combined_gamma <- glmmTMB(adjusted_predicted_viral_conc ~ Treatment * Location + log(`Number of nematodes`) + Replicate +
+#                                  (1 | Plate) + (1 | Basin), data = combined_exp, family = Gamma(link = "log"))
+# summary(model_combined_gamma)
+
+# ------------------------------
+# Post-hoc Comparisons (Excluding Healthy Controls, if desired)
+# ------------------------------
+# For instance, to focus only on viral treatments (removing healthy controls):
+combined_no_healthy <- combined_exp %>% filter(!grepl("healthy", tolower(Treatment)))
+model_combined_no_healthy <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + `Number of nematodes` + Replicate +
+                                    (1 | Plate) + (1 | Basin), data = combined_no_healthy)
+emm_combined <- emmeans(model_combined_no_healthy, ~ Treatment | Location,
+                        at = list(`log(Number of nematodes)` = mean(log(combined_no_healthy$`Number of nematodes`), na.rm = TRUE)))
+print(emm_combined)
+pairs(emm_combined, adjust = "tukey")
+
+# ------------------------------
+# Visualization: Violin Plots by Treatment, Faceted by Replicate and Location
+# ------------------------------
+ggplot(combined_no_healthy, aes(x = Treatment, y = log(adjusted_predicted_viral_conc), fill = Treatment)) +
+  geom_violin(trim = F) +
+  geom_jitter(width = 0.1, size = combined_no_healthy$`Number of nematodes`/7, alpha = 0.5) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_grid(Replicate ~ Location) + geom_boxplot(width = 0.2, alpha = 0.4, ) +
+  labs(x = "", y = "") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+
+ggplot(combined_no_healthy, aes(x = Treatment, y = log(adjusted_predicted_viral_conc), fill = Treatment)) +
+  geom_jitter(width = 0.1, size = combined_no_healthy$`Number of nematodes`/7, alpha = 0.5) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_grid(Replicate ~ Location) + geom_boxplot(width = 0.2, alpha = 0.8, ) +
+  labs(x = "", y = "") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+
+# Exclude healthy controls from the combined experimental data
+viral_data <- combined_exp %>% 
+  filter(!grepl("healthy", tolower(Treatment)))
+
+# Fit a Gamma GLMM with a log link for viral treatments only
+model_gamma <- glmmTMB(adjusted_predicted_viral_conc ~ Treatment * Location * 
+                         log(`Number of nematodes`) + Replicate +
+                         (1 | Basin),
+                       data = viral_data,
+                       family = Gamma(link = "log"))
+summary(model_gamma)
+
+# Obtain estimated marginal means for Treatment within each Location at the average log(Number of nematodes)
+emm_viral <- emmeans(model_gamma, ~ Treatment * Location | Replicate,
+                     at = list(`log(Number of nematodes)` = mean(log(viral_data$`Number of nematodes`), na.rm = TRUE)))
+print(emm_viral)
+
+# Perform pairwise comparisons using Tukey adjustment
+pairs(emm_viral, adjust = "dunnett")
+
+model_gamma <- glmmTMB(adjusted_predicted_viral_conc ~ Treatment * Location + 
+                         log(`Number of nematodes`) * Treatment + Location *log(`Number of nematodes`) +
+                         (1 | Replicate/Basin),
+                       data = viral_data,
+                       family = Gamma(link = "log"))
+summary(model_gamma)
+
+confint(model_gamma, parm= "theta_")
+
+
+
+library(splines)
+model <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * Location + bs(log(`Number of nematodes`), df = 3) + Replicate + (1 | Plate) + (1 | Basin),
+     data = combined_no_healthy)
+
+plot(model, which = 1)
+qqnorm(resid(model)); qqline(resid(model))
+
+
+
+
+glmm_model <- glmer(adjusted_predicted_viral_conc ~ Treatment * Location + (1 | log(`Number of nematodes`) ), 
+                    data = combined_no_healthy, family = Gamma(link = "log"))
+pairs(emmeans(model, ~ Treatment), adjust = "holm")
+
+
+library(multcomp)
+library(emmeans)
+library(ggplot2)
+
+
+# For Center samples:
+center_data <- combined_no_healthy %>% filter(Center == "1")
+kruskal_center <- kruskal.test(log(adjusted_predicted_viral_conc) ~ Treatment, data = center_data)
+print(kruskal_center)
+dunn_center <- DunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, data = center_data, method="bonferroni")
+print(dunn_center)
+
+# For Perimeter samples:
+perimeter_data <- combined_no_healthy %>% filter(Perimeter == "1")
+kruskal_perimeter <- kruskal.test(log(adjusted_predicted_viral_conc) ~ Treatment, data = perimeter_data)
+print(kruskal_perimeter)
+dunn_perimeter <- DunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, data = perimeter_data, method="bonferroni")
+print(dunn_perimeter)
+
+kruskal_res <- kruskal.test(log(adjusted_predicted_viral_conc) ~ Treatment, data = combined_no_healthy)
+print(kruskal_res)
+
+# ------------------------------
+# Determine y-position for label placement
+# ------------------------------
+# We'll calculate the maximum log(adjusted_predicted_viral_conc) per treatment (across all replicates and locations)
+label_pos <- combined_no_healthy %>%
+  group_by(Treatment) %>%
+  summarise(ypos = max(log(adjusted_predicted_viral_conc), na.rm = TRUE) + 0.5)  # offset of 0.5
+cld_df <- left_join(cld_df, label_pos, by = "Treatment")
+
+# ------------------------------
+# Visualization: Violin Plots with CLD Overlay
+# ------------------------------
+p <- ggplot(combined_no_healthy, aes(x = Treatment, y = log(adjusted_predicted_viral_conc), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.1, size = combined_no_healthy$`Number of nematodes`/7, alpha = 0.5) +
+  geom_boxplot(width = 0.2, alpha = 0.4, outlier.shape = NA) +
+  facet_grid(Replicate ~ Location) +
+  geom_text(data = cld_df, aes(x = Treatment, y = ypos, label = group),
+            color = "black", size = 6) +
+  labs(x = "", y = "log(Adjusted Predicted Viral RNA Concentration)") +
+  theme_minimal(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+print(p)
+
+
+
+
+```
+
+
+
+
+```{r}
+head(combined_no_healthy)
+perimeter_data <- combined_no_healthy %>%
+  filter(Perimeter == "1")
+
+# ------------------------------
+# Replicate 1 Analysis (Perimeter)
+# ------------------------------
+perimeter_rep1 <- perimeter_data %>% filter(Replicate == "1")
+model_rep1 <- lmer(log(adjusted_predicted_viral_conc) ~ Treatment * log(`Number of nematodes`) + (1 | Basin), data = perimeter_rep1)
+summary(model_rep1)
+
+emm_rep1 <- emmeans(model_rep1, ~ Treatment * log(`Number of nematodes`))
+pairs(emm_rep1, adjust = "tukey")
+
+# ------------------------------
+# Replicate 2 Analysis (Perimeter)
+# ------------------------------
+perimeter_rep2 <- perimeter_data %>% filter(Replicate == "2")
+model_rep2 <- lmer(log(adjusted_predicted_viral_conc/`Number of nematodes`) ~ Treatment + (1 | Basin), data = perimeter_rep2)
+summary(model_rep2)
+
+emm_rep2 <- emmeans(model_rep2, ~ Treatment)
+pairs(emm_rep2, adjust = "tukey")
+```
+
+
+
+
+
+```{r}
+
+# Remove healthy controls from the experimental dataset
+exp_data_no_healthy <- exp_data %>% 
+  filter(!grepl("healthy", tolower(Treatment)))
+
+# Fit a mixed-effects model for viral treatments only.
+model_no_healthy <- lmer(log(adjusted_predicted_viral_conc/`Number of nematodes`) ~ Treatment + Location + `Number of nematodes` +
+                           + (1 | Basin), 
+                         data = exp_data_no_healthy)
+summary(model_no_healthy)
+
+# Obtain estimated marginal means by Treatment within each Location, adjusting for the mean log(Number of nematodes)
+emm_no_healthy <- emmeans(model_no_healthy, ~ Treatment | Location, 
+                          at = list(`Number of nematodes` = mean(exp_data_no_healthy$`Number of nematodes`), na.rm = TRUE))
+print(emm_no_healthy)
+
+# Conduct pairwise comparisons among the viral treatments using Tukey adjustment.
+pairs(emm_no_healthy, adjust = "tukey")
+
+center_data
+means <- aggregate(`adjusted_predicted_viral_conc`/`Number of nematodes` ~ Treatment, data = center_data, FUN = mean)
+means2 <- aggregate(`adjusted_predicted_viral_conc`/`Number of nematodes` ~ Treatment, data = perimeter_data, FUN = mean)
+
+
+allmeans <- merge(c(means, means2),"Treatment")
+
+```
+
+# plots for each replicate separately
+```{r}
+
+p1_before <- ggplot(exp_rep1, aes(x = Treatment, y = log(predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.1, size = exp_rep1$`Number of nematodes`/5, alpha = 0.5, color = as.factor(exp_rep1$`Plate`)) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(title = "Rep1: Before Plate Calibration", x = "Treatment", y = "Predicted Viral RNA Conc.") +
+  theme_minimal(base_size = 16) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+print(p1_before)
+
+# Plot Rep1: After Calibration
+p1_after <- ggplot(exp_rep1, aes(x = Treatment, y = log(adjusted_predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.1, size = exp_rep1$`Number of nematodes`/5, alpha = 0.5, color = as.factor(exp_rep1$`Plate`)) + scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(title = "Rep1: After Plate Calibration", x = "Treatment", y = "Adjusted Viral RNA Conc.") +
+  theme_minimal(base_size = 16) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+print(p1_after)
+
+p2_before <- ggplot(exp_rep2, aes(x = Treatment, y = log(predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.1, size = exp_rep2$`Number of nematodes`/5, alpha = 0.5, color = as.factor(exp_rep2$`Plate`)) + scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(title = "Rep2: Before Plate Calibration", x = "Treatment", y = "Predicted Viral RNA Conc.") +
+  theme_minimal(base_size = 16) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+print(p2_before)
+
+# Plot Rep2: After Calibration
+p2_after <- ggplot(exp_rep2, aes(x = Treatment, y = log(adjusted_predicted_viral_conc/`Number of nematodes`), fill = Treatment)) +
+  geom_violin(trim = F) +
+  geom_jitter(width = 0.1, size = exp_rep2$`Number of nematodes`/5, alpha = 0.5, color = as.factor(exp_rep2$`Plate`)) + scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +
+  facet_wrap(~ Location) +
+  labs(title = "Rep2: After Plate Calibration", x = "Treatment", y = "Adjusted Viral RNA Conc.") +
+  theme_minimal(base_size = 16) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+print(p2_after)
+
+
+library(dplyr)
+library(FSA)  # for dunnTest
+
+rep1_center <- combined_no_healthy %>% 
+  filter(Replicate == "1", Center == "1")
+dunn_rep1_center <- dunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, 
+                             data = rep1_center, 
+                             method = "bh")
+print("Replicate 1, Center:")
+print(dunn_rep1_center)
+
+# Replicate 1, Perimeter:
+rep1_perimeter <- combined_no_healthy %>% 
+  filter(Replicate == "1", Perimeter == "1")
+dunn_rep1_perimeter <- dunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, 
+                                data = rep1_perimeter, 
+                                method = "bh")
+print("Replicate 1, Perimeter:")
+print(dunn_rep1_perimeter)
+
+# Replicate 2, Center:
+rep2_center <- combined_no_healthy %>% 
+  filter(Replicate == "2", Center == "1")
+dunn_rep2_center <- dunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, 
+                             data = rep2_center, 
+                             method = "bh")
+print("Replicate 2, Center:")
+print(dunn_rep2_center)
+
+# Replicate 2, Perimeter:
+rep2_perimeter <- combined_no_healthy %>% 
+  filter(Replicate == "2", Perimeter == "1")
+dunn_rep2_perimeter <- dunnTest(log(adjusted_predicted_viral_conc) ~ Treatment, 
+                                data = rep2_perimeter, 
+                                method = "bh")
+print("Replicate 2, Perimeter:")
+print(dunn_rep2_perimeter)
+
+
+
+
+```
+
+# Transmission rep #1
+```{r}
+file_path <- "ResultsRep1.xlsx"
+data <- read_excel(file_path)
+
+file_path2 <- "ResultsRep2.xlsx"
+data2 <- read_excel(file_path2)
+
+# Filter for perimeter plants
+perimeter_data1 <- data %>% filter(Perimeter == 1)
+
+# Calculate transmission rate by Inoculum Treatment and Basin
+transmission_summary1 <- perimeter_data1 %>%
+  group_by(Basin, `Inoculum Treatment`) %>%
+  summarise(
+    Positive_Count = sum(RootPCR == 1, na.rm = TRUE),
+    Total_Perimeter = n(),
+    Transmission_Rate = as.numeric(Positive_Count / Total_Perimeter)
+  ) %>%
+  ungroup()
+transmission_summary1$Transmission_Percent = as.integer(transmission_summary1$Transmission_Rate*100)
+
+filtered_data <- perimeter_data1 %>% 
+  filter(`Inoculum Treatment` != "mock control")
+# Convert to factors
+filtered_data$`Inoculum Treatment` <- as.factor(filtered_data$`Inoculum Treatment`)
+filtered_data$Basin <- as.factor(filtered_data$Basin)
+
+glm_model_ind <- glm(`RootPCR` ~ `Inoculum Treatment` + Basin, 
+                     family = binomial, data = filtered_data)
+# View the model summary
+summary(glm_model_ind)
+
+# Calculate the Pearson chi-square statistic and degrees of freedom
+pearson_chi2 <- sum(resid(glm_model_ind, type = "pearson")^2)
+df_resid <- df.residual(glm_model_ind)
+dispersion <- pearson_chi2 / df_resid
+dispersion
+
+transmission_model <- glm(`RootPCR` ~ `Inoculum Treatment`, 
+                          family = binomial, data = filtered_data)
+summary(transmission_model)
+emm <- emmeans(transmission_model, ~ `Inoculum Treatment`)
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_comparisons <- pairs(emm, adjust = "tukey")
+print(pairwise_comparisons)
+
+cld_output <- cld(emm, Letters = letters, adjust = "tukey")
+print(cld_output)
+
+transmission_summary1 %>% 
+  tidyplot(x = `Inoculum Treatment`, y = Transmission_Percent, color = `Inoculum Treatment`) %>%
+  add_mean_bar(alpha=0.85) %>%
+  add_sem_errorbar(color = "black") %>%
+  add_data_points_beeswarm(color = "black", alpha =0.5) +
+  labs(x = "Inoculum Treatment",
+    y = "Transmission Rate (%)",
+    title = "Average Transmission Rate, Replication #1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4"))
+
+
+ggsave("Transmission1.pdf")
+
+```
+
+# Transmission rep #2
+```{r}
+
+data2 %>% 
+  tidyplot(x = "Inoculum Treatment", y = "RootPCR", color = "Inoculum Treatment") %>%
+  add_mean_bar(alpha=0.85) %>%
+  add_sem_errorbar() %>%
+  add_data_points_beeswarm()
+
+# Filter for perimeter plants
+perimeter_data2 <- data2 %>% filter(Perimeter == 1)
+
+# Calculate transmission rate by Inoculum Treatment and Basin
+transmission_summary2 <- perimeter_data2 %>%
+  group_by(Basin, `Inoculum Treatment`) %>%
+  summarise(
+    Positive_Count = sum(RootPCR == 1, na.rm = TRUE),
+    Total_Perimeter = n(),
+    Transmission_Rate = as.numeric(Positive_Count / Total_Perimeter)
+  ) %>%
+  ungroup()
+transmission_summary2$Transmission_Percent = as.integer(transmission_summary2$Transmission_Rate*100)
+
+
+filtered_data2 <- perimeter_data2 %>% 
+  filter(`Inoculum Treatment` != "mock control")
+filtered_data2$RootPCR[is.na(filtered_data2$RootPCR)] <- 0
+filtered_data2$RootPCR <- as.numeric(filtered_data2$RootPCR)
+
+transmission_model2 <- glm(`RootPCR` ~ `Inoculum Treatment`, 
+                          family = binomial, data = filtered_data2)
+summary(transmission_model2)
+emm2 <- emmeans(transmission_model2, ~ `Inoculum Treatment`)
+
+par(mfrow = c(2, 2))
+plot(transmission_model2)
+par(mfrow = c(1, 1))
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_comparisons2 <- pairs(emm2, adjust = "tukey")
+print(pairwise_comparisons2)
+
+cld_output2 <- cld(emm2, Letters = letters, adjust = "tukey")
+print(cld_output2)
+
+
+pearson_chi2 <- sum(resid(transmission_model2, type = "pearson")^2)
+df_resid <- df.residual(transmission_model2)
+dispersion <- pearson_chi2 / df_resid
+dispersion 
+
+
+
+
+
+transmission_summary2 %>% 
+  tidyplot(x = `Inoculum Treatment`, y = Transmission_Percent, color = `Inoculum Treatment`) %>%
+  add_mean_bar(alpha=0.85) %>%
+  add_sem_errorbar(color = "black") %>%
+  add_data_points_beeswarm(color = "black", alpha =0.5) +
+  labs(x = "Inoculum Treatment",
+    y = "Transmission Rate (%)",
+    title = "Average Transmission Rate, Replication #2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4"))
+
+ggsave("transmission2.pdf")
+
+
+
+colnames(transmission_summary2)
+summary(transmission_summary2)
+transmission_summary2 <- transmission_summary2 %>%
+  filter(!is.na(Transmission_Percent) & !is.na(`Inoculum Treatment`))
+
+transmission_summary2 <- transmission_summary2 %>%
+  rename(
+    Treatment = `Inoculum Treatment`,
+    Percent = Transmission_Percent
+  )
+
+# Fit the ANOVA model with simplified names
+tukey_model_rep2 <- aov(Percent ~ Treatment, data = transmission_summary2)
+
+# Perform Tukey's HSD test
+tukey_result_rep2 <- TukeyHSD(tukey_model_rep2)
+
+# View the results
+print(tukey_result_rep2)
+tukey_model_rep2 <- aov(`Percent` ~ `Treatment`, data = transmission_summary2)
+
+# Perform Tukey's HSD test
+tukey_result_rep2 <- TukeyHSD(tukey_model_rep2)
+
+# Extract Tukey's HSD results for `Inoculum Treatment`
+tukey_table <- tukey_result_rep2$`Treatment`
+
+# Ensure row names and p-values are properly handled
+comparison_names <- rownames(tukey_table)  # Extract the pairwise comparisons
+p_values <- tukey_table[, "p adj"]         # Extract adjusted p-values
+
+multcompView::multcompLetters(p_values)$Letters
+
+# Convert the letters into a data frame for merging with the data
+tukey_df_rep2 <- data.frame(
+  `Treatment` = names(group_letters),
+  Letter = group_letters,
+  stringsAsFactors = FALSE
+)
+
+```
+
+#Transmission analysis
+```{r}
+# Load necessary libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+# Load the datasets
+file_path1 <- "ResultsRep1.xlsx"
+file_path2 <- "ResultsRep2.xlsx"
+data1 <- read_excel(file_path1)
+data2 <- read_excel(file_path2)
+
+# Filter for perimeter plants and calculate transmission rates for Replicate 1
+perimeter_data1 <- data1 %>% filter(Perimeter == 1)
+transmission_summary1 <- perimeter_data1 %>%
+  group_by(Basin, `Inoculum Treatment`) %>%
+  summarise(
+    Positive_Count = sum(RootPCR == 1, na.rm = TRUE),
+    Total_Perimeter = n(),
+    Transmission_Rate = as.numeric(Positive_Count / Total_Perimeter)
+  ) %>%
+  ungroup() %>%
+  mutate(Replicate = "Replication 1")
+
+# Filter for perimeter plants and calculate transmission rates for Replicate 2
+perimeter_data2 <- data2 %>% filter(Perimeter == 1)
+transmission_summary2 <- perimeter_data2 %>%
+  group_by(Basin, `Inoculum Treatment`) %>%
+  summarise(
+    Positive_Count = sum(RootPCR == 1, na.rm = TRUE),
+    Total_Perimeter = n(),
+    Transmission_Rate = as.numeric(Positive_Count / Total_Perimeter)
+  ) %>%
+  ungroup() %>%
+  mutate(Replicate = "Replication 2")
+
+transmission_summary1 <- transmission_summary1 %>%
+  mutate(Basin = as.character(Basin))
+
+transmission_summary2 <- transmission_summary2 %>%
+  mutate(Basin = as.character(Basin))
+
+
+# Combine the two transmission summaries
+combined_data <- bind_rows(transmission_summary1, transmission_summary2)
+
+# Aggregate data across replicates
+combined_summary <- combined_data %>%
+  group_by(`Inoculum Treatment`) %>%
+  summarise(
+    Mean_Transmission_Rate = mean(Transmission_Rate, na.rm = TRUE),
+    SEM = sd(Transmission_Rate, na.rm = TRUE) / sqrt(n())
+  )
+
+combined_summary$Transmission_Percent <- combined_summary$Mean_Transmission_Rate * 100
+
+perimeter_data1$`Sample ID` <- as.character(perimeter_data1$`Sample ID`)
+perimeter_data1$Basin <- as.character(perimeter_data1$Basin)
+perimeter_data2$RootPCR[is.na(perimeter_data2$RootPCR)] <- 0
+perimeter_data2$RootPCR <- as.numeric(perimeter_data2$RootPCR)
+
+combined_data3 <- bind_rows(select(perimeter_data1, 5, 7, 11),select(perimeter_data2, 5, 7, 11))
+
+filtered_data3 <- combined_data3 %>% 
+  filter(`Inoculum Treatment` != "mock control")
+
+
+transmission_model3 <- glm(`RootPCR` ~ `Inoculum Treatment`, 
+                          family = binomial, data = filtered_data3)
+summary(transmission_model3)
+emm3 <- emmeans(transmission_model3, ~ `Inoculum Treatment`)
+
+pearson_chi3 <- sum(resid(transmission_model3, type = "pearson")^2)
+df_resid <- df.residual(transmission_model3)
+dispersion <- pearson_chi3 / df_resid
+dispersion 
+
+
+par(mfrow = c(2, 2))
+plot(transmission_model3)
+par(mfrow = c(1, 1))
+
+# Perform pairwise comparisons with Tukey adjustment
+pairwise_comparisons3 <- pairs(emm3, adjust = "tukey")
+print(pairwise_comparisons3)
+
+cld_output3 <- cld(emm3, Letters = letters, adjust = "tukey")
+print(cld_output3)
+
+
+# Plot the combined transmission rates
+p <- ggplot(combined_summary, aes(x = `Inoculum Treatment`, y = Transmission_Percent, fill = `Inoculum Treatment`)) +
+  geom_bar(stat = "identity", alpha = 0.85) +
+  geom_errorbar(aes(ymin = Transmission_Percent - SEM * 100, 
+                    ymax = Transmission_Percent + SEM * 100), 
+                width = 0.2, color = "black") +
+  geom_jitter(data = combined_data, aes(x = `Inoculum Treatment`, y = Transmission_Rate * 100), 
+              width = 0.1, alpha = 0.5, color = "black") +
+  labs(
+    x = "Inoculum Treatment",
+    y = "Transmission Rate (%)",
+    title = "Average Transmission Rate (Combined Replicates)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)
+  ) +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4"))
+
+# Save the plot
+print(p)
+
+# Combine the two transmission summaries
+combined_data <- bind_rows(transmission_summary1, transmission_summary2)
+
+# Add a Transmission_Percent column directly to combined_data
+combined_data <- combined_data %>%
+  mutate(Transmission_Percent = Transmission_Rate * 100)
+
+# Use tidyplot for consistent style
+combined_data %>%
+  tidyplot(x = `Inoculum Treatment`, y = Transmission_Percent, color = `Inoculum Treatment`) %>%
+  add_mean_bar(alpha = 0.85) %>%
+  add_sem_errorbar(color = "black", alpha=0.85) %>%
+  add_data_points_beeswarm(color = "black", alpha = 0.5) +
+  labs(
+    x = "Inoculum Treatment",
+    y = "Transmission Rate (%)",
+    title = ""
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4"))
+
+
+
+
+```
+
+
+```{r}
+
+# Fit the mixed-effects model
+mixed_model <- lmer(Transmission_Percent ~ `Inoculum Treatment` + (1 | Replicate), data = combined_data)
+
+# Perform pairwise comparisons
+emmeans_results <- emmeans(mixed_model, pairwise ~ `Inoculum Treatment`, adjust = "tukey")
+
+# Extract pairwise significance letters
+tukey_letters <- multcomp::cld(emmeans_results$emmeans, Letters = letters)
+
+# Merge the Tukey letters into the combined dataset
+tukey_df <- as.data.frame(tukey_letters)
+tukey_df <- tukey_df %>%
+  rename(Letter = .group, Treatment = `Inoculum Treatment`) %>%
+  select(Treatment, Letter)
+
+# Merge the letters with the main data
+combined_data <- combined_data %>%
+  left_join(tukey_df, by = c("Inoculum Treatment" = "Treatment"))
+
+# Use tidyplot to create the final plot
+combined_data %>%
+  tidyplot(x = `Inoculum Treatment`, y = Transmission_Percent, color = `Inoculum Treatment`) %>%
+  add_mean_bar(alpha = 0.85) %>%
+  add_sem_errorbar() %>%
+  add_data_points_beeswarm(color = "black", alpha = 0.5) +
+  geom_text(data = tukey_df, aes(x = Treatment, y = max(combined_data$Transmission_Percent) + 5, label = Letter), 
+            inherit.aes = FALSE, size = 5, color = "black", hjust = 0.5) +
+  labs(
+    x = "Inoculum Treatment",
+    y = "Transmission Rate (%)",
+    title = "Average Transmission Rate (Mixed-Effects Model with Tukey Letters)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4"))
+
+
+
+
+
+
+```
+
+
+```{r}
+
+
+data$Treatment <- as.factor(data$Treatment)
+data$Bin <- as.factor(data$Bin)
+data$Distance <- as.factor(data$Distance)
+data$Sample <- as.factor(data$Sample)
+
+qPCR_summary$TreatmentGroup <- as.factor(qPCR_summary$TreatmentGroup)
+
+# Perform an ANOVA
+
+anova_result <- aov(PCR ~ Treatment * Bin * Sample * `Center total GFLV (ng/uL)` * `Perimeter total GFLV (ng/uL)`, data = data)
+summary(anova_result)
+ 
+tukey_PCR <- TukeyHSD(anova_result)
+print(tukey_PCR)
+
+
+
+# Perform ANOVA for PCR
+anova_PCR <- aov(PCR ~ Treatment, data = data)
+summary(anova_PCR)
+# Plot the data with ggplot2
+p <- ggplot(data, aes(x = Treatment, y = PCR)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, aes(color = Treatment)) +
+  labs(title = "Total PCR by Treatment", x = "Treatment", y = "PCR") +
+  theme_minimal() + stat_compare_means(method = "t.test", label = "p.signif", paired =T)
+
+# Add statistical significance annotations
+p <- p +
+
+# Display the plot
+print(p)
+
+
+
+# logistic model
+summary(glm(PCR ~ Treatment * Bin + Distance, data=data))
+# Compared to baseline, both GHu strains have a significant impact (negatively) on the transmission outcome, while wildtype F13 has a slightly significant positive impact
+
+
+# Does the nematode population alone contribute to GFLV transmission?
+
+# Does the strain have an impact?
+logistic_model <- glm(PCR ~ Treatment, data = data, family = binomial)
+summary(logistic_model)
+
+# Create a summary dataframe for proportions
+summary_data <- data %>%
+  group_by(Treatment) %>%
+  summarise(Proportion = mean(PCR), Count = n()) %>%
+  mutate(LowerCI = Proportion - qnorm(0.975) * sqrt((Proportion * (1 - Proportion)) / Count),
+         UpperCI = Proportion + qnorm(0.975) * sqrt((Proportion * (1 - Proportion)) / Count))
+
+# Plot the data with ggplot2
+p <- ggplot(summary_data, aes(x = Treatment, y = Proportion)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), width = 0.2) +
+  labs(title = "Proportion of PCR Positive by Treatment", x = "Treatment", y = "Proportion of PCR Positive") +
+  theme_minimal()
+
+# Display the plot
+print(p)
+
+# And the combination of the previous two? 
+# Fit a logistic regression model
+# Assuming 'PCR' is the binary response variable, 'treatment' is a fixed effect, and 'distance' is a covariate
+model <- glmer(ELISA ~ Treatment * Distance * Bin + (1|Sample), data = data, family = binomial)
+
+
+
+# Display the summary of the model
+summary(model)
+# 
+
+# One-Way ANOVA
+anova_one_way <- aov(PCR ~ Treatment * Bin, data = data)
+summary(anova_one_way)
+
+# Post-Hoc Test
+tukey_test <- TukeyHSD(anova_one_way, anova_one_way$contrasts$Treatment)
+print(tukey_test)
+
+# Extract Tukey's Letters
+tukey_results <- tukey_test$Treatment
+tukey_letters <- multcompLetters4(anova_one_way, tukey_test)
+
+# Calculate group means
+means <- aggregate(PCR ~ Treatment, data = data, FUN = mean)
+
+# Combine means with letters
+means$letters <- tukey_letters$Treatment$Letters
+
+
+
+means <- aggregate(`Center total GFLV (ng/uL)` ~ Treatment, data = data, FUN = mean)
+means2 <- aggregate(`Perimeter total GFLV (ng/uL)` ~ Treatment, data = data, FUN = mean)
+means3 <- aggregate(`Normalized average center (ng/uL)` ~ Treatment, data = data, FUN = mean)
+means4 <- aggregate(`Normalized average perimeter (ng/uL)` ~ Treatment, data = data, FUN = mean)
+
+allmeans <- merge(c(means, means2,means3,means4),"Treatment")
+
+# Does treatment have an effect on total or normalized GFLV?
+
+TreatonGFLV <- aov(`Center total GFLV (ng/uL)` ~ Treatment * Bin, data=data)
+summary(TreatonGFLV)
+tukey_test <- stats::TukeyHSD(TreatonGFLV)
+print(tukey_test)
+
+TreatonGFLV <- aov(`Perimeter total GFLV (ng/uL)` ~ Treatment , data=data)
+summary(TreatonGFLV)
+tukey_test <- TukeyHSD(TreatonGFLV)
+print(tukey_test)
+
+TreatonGFLV <- aov(`Normalized average center (ng/uL)` ~ Treatment , data=data)
+summary(TreatonGFLV)
+tukey_test <- TukeyHSD(TreatonGFLV)
+print(tukey_test)
+
+TreatonGFLV <- aov(`Normalized average perimeter (ng/uL)` ~ Treatment , data=data)
+summary(TreatonGFLV)
+tukey_test <- TukeyHSD(TreatonGFLV)
+print(tukey_test)
+
+TreatonGFLV <- glm(PCR ~ `Normalized average perimeter (ng/uL)` * `Normalized average center (ng/uL)`, data=data, family = binomial)
+summary(TreatonGFLV)
+# Add predicted probabilities to the dataset
+data <- data %>%
+  mutate(Predicted_Probability = predict(logistic_model, type = "response"))
+
+# Plot the predicted probabilities
+library(ggplot2)
+p <- ggplot(data, aes(x = `Normalized average perimeter (ng/uL)`, y = Predicted_Probability, color = PCR)) +
+  geom_point() +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "Predicted Probabilities of PCR Positive",
+       x = "Normalized average perimeter (ng/uL)",
+       y = "Predicted Probability") +
+  theme_minimal()
+
+# Display the plot
+print(p)
+
+
+```
+
+
+
+
+
+
+```{r}
+qPCR <- read.xlsx("qPCR.X.index.xlsx", sheetIndex = 1)
+```
+
+```{r}
+
+qPCR_summary <- nematode_samples %>%
+  # Only include samples with a location defined
+  filter(Center == 1 | Perimeter == 1) %>%
+  mutate(
+    # Use your Treatment column directly (or recode if needed)
+    TreatmentGroup = Treatment,
+    # Create Location based on Center/Perimeter flags
+    Location = case_when(
+      Center == 1 ~ "Center",
+      Perimeter == 1 ~ "Perimeter"
+    ),
+    # Create an Experiment flag: if Basin starts with "B" then Exp2, otherwise Exp1.
+    Basin = as.character(Basin),  # convert to character so we can check for "B"
+    Experiment = if_else(str_detect(Basin, "^B"), "Exp2", "Exp1")
+  ) %>%
+  group_by(Basin, Experiment, TreatmentGroup, Location) %>%
+  summarise(avg_viral = mean(viral_RNA_per_nematode, na.rm = TRUE), .groups = "drop")
+
+qPCR_wide <- qPCR_summary %>%
+  pivot_wider(
+    names_from = Location, 
+    values_from = avg_viral, 
+    names_prefix = "viral_"
+  )
+
+transmission_data <- combined_data %>%
+  mutate(
+    Basin = as.character(Basin),  # ensure Basin is character
+    Experiment = if_else(str_detect(Basin, "^B"), "Exp2", "Exp1")
+  ) %>%
+  rename(TreatmentGroup = `Inoculum Treatment`)
+
+merged_data <- transmission_data %>%
+  left_join(qPCR_wide, by = c("Basin", "TreatmentGroup", "Experiment"))
+
+# Check the merged data:
+head(merged_data)
+
+
+# Optionally, create a log-transformed viral concentration (if appropriate)
+merged_data <- merged_data %>%
+  mutate(log_viral_Center = log(viral_Center),
+         log_viral_Perimeter = log(viral_Perimeter))
+
+# Model A: Transmission_Rate vs. Center viral concentration (plus Basin as a factor)
+model_center <- lm(Transmission_Rate ~ log_viral_Center + TreatmentGroup, data = merged_data)
+summary(model_center)
+
+# Model B: Transmission_Rate vs. Perimeter viral concentration
+model_perimeter <- lm(Transmission_Rate ~ log_viral_Perimeter+ TreatmentGroup, data = merged_data)
+summary(model_perimeter)
+
+# Model C: Transmission_Rate vs. both Center and Perimeter viral concentrations
+model_both <- lm(Transmission_Rate ~ log_viral_Center + log_viral_Perimeter+ TreatmentGroup, data = merged_data)
+summary(model_both)
+
+# Model A: Transmission_Rate vs. Center viral concentration (plus Basin as a factor)
+model_center <- lm(Transmission_Rate ~ viral_Center + TreatmentGroup, data = merged_data)
+summary(model_center)
+
+# Model B: Transmission_Rate vs. Perimeter viral concentration
+model_perimeter <- lm(Transmission_Rate ~ viral_Perimeter+ TreatmentGroup, data = merged_data)
+summary(model_perimeter)
+
+# Model C: Transmission_Rate vs. both Center and Perimeter viral concentrations
+model_both <- lm(Transmission_Rate ~ viral_Center + viral_Perimeter+ TreatmentGroup, data = merged_data)
+summary(model_both)
+
+# Define custom color palette
+colors <- c(
+  "mutant GHu 1EK802G" = "#C02D45",
+  "mutant F13 1EG802K" = "#4DACD6",
+  "wildtype F13" = "#0172B8",
+  "wildtype GHu" = "red4",   # Replace "treatment4" with actual name
+  "healthy" = "#4FAE62"    # Replace "treatment5" with actual name
+)
+
+
+
+ggplot(df_long, aes(x = Treatment, y = total, fill = Treatment)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_error
+  facet_wrap(~ location, scales = "free_y") +
+  scale_fill_manual(values = colors) +
+  labs(title = "Center and Perimeter Totals by Treatment",
+       x = "Treatment",
+       y = "Total Count") +
+  theme_minimal()
+  
+  
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Assume your data frame is named 'df'
+# Ensure Treatment is ordered correctly:
+treatment_order <- c("healthy", "mutant F13 1EG802K", "mutant GHu 1EK802G", "wildtype F13", "wildtype GHu")
+df$Treatment <- factor(df$Treatment, levels = treatment_order)
+
+# Define your treatment colors:
+treatment_colors <- c("healthy" = "#1f78b4",
+                      "mutant F13 1EG802K" = "#33a02c",
+                      "mutant GHu 1EK802G" = "#e31a1c",
+                      "wildtype F13" = "#ff7f00",
+                      "wildtype GHu" = "#6a3d9a")
+
+# Reshape the data into long format for center and perimeter totals:
+df_long <- df %>%
+  select(Treatment, center_total, perimeter_total) %>%
+  pivot_longer(cols = c(center_total, perimeter_total),
+               names_to = "Location",
+               values_to = "Total") %>%
+  mutate(Location = recode(Location,
+                           "center_total" = "Center",
+                           "perimeter_total" = "Perimeter"))
+
+# Compute summary statistics (mean and standard error) for each Treatment and Location:
+df_summary <- df_long %>%
+  group_by(Treatment, location) %>%
+  summarise(mean_total = mean(total, na.rm = TRUE),
+            se_total = sd(total, na.rm = TRUE) / sqrt(n()),
+            .groups = "drop")
+
+# Create a grouped bar plot:
+# We'll map fill to Treatment (so the bars get your custom colors) and
+# differentiate Center vs. Perimeter by alpha (transparency).
+ggplot(df_summary, aes(x = c(Treatment,location), y = mean_total, fill = Treatment)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_total - se_total, ymax = mean_total + se_total),
+                position = position_dodge(width = 0.9), width = 0.2) 
+
+
+```
+
+```{r}
+```
+
+```{r}
+# The data has some multicollinearity
+
+# Convert the relevant columns to factors
+data$`Inoculum Treatment` <- as.factor(data$`Inoculum Treatment`)
+data$PCR <- as.factor(data$RootPCR)
+
+# Check for NA values
+summary(data)
+
+# Remove rows with NA values in the relevant columns
+clean_data <- data %>%
+  filter(!is.na(`Normalized average perimeter (ng/uL)`) & !is.na(`Normalized average center (ng/uL)`))
+
+# Center the predictors
+clean_data$centered_perimeter <- scale(clean_data$`Normalized average perimeter (ng/uL)`, center = TRUE, scale = FALSE)
+clean_data$centered_center <- scale(clean_data$`Normalized average center (ng/uL)`, center = TRUE, scale = FALSE)
+
+# Fit the logistic regression model with centered predictors using brglmFit for bias reduction
+brglm_model <- glm(PCR ~ centered_perimeter * centered_center, 
+                   data = clean_data, 
+                   family = binomial,
+                   method = "brglmFit")
+
+# Summary of the bias-reduced logistic regression model
+summary(brglm_model)
+
+# Exponentiate the coefficients of the bias-reduced model
+exp_coef_brglm <- exp(coef(brglm_model))
+print(exp_coef_brglm)
+
+#perimeter viral retention is highly associated with viral transmission (not surprisingly, but a great confirmatory point)
+
+# Confidence intervals for the bias-reduced model
+exp_confint_brglm <- exp(confint(brglm_model))
+print(exp_confint_brglm)
+
+# Check for multicollinearity with centered predictors
+vif_centered <- vif(brglm_model)
+print(vif_centered)
+
+# Generate predicted probabilities for the complete cases
+clean_data <- clean_data %>%
+  mutate(Predicted_Probability_BRGLM = predict(brglm_model, type = "response"))
+
+# Visualize the predicted probabilities with the bias-reduced model
+p2 <- ggplot(clean_data, aes(x = centered_perimeter, y = Predicted_Probability_BRGLM, color = PCR)) +
+  geom_jitter(size = 2, alpha = 0.7) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE, color = "blue", size = 1.5) +
+  labs(title = "Predicted Probabilities of PCR Positive (Bias-Reduced)",
+       x = "Centered Normalized Average Perimeter (ng/uL)",
+       y = "Predicted Probability",
+       color = "PCR Outcome") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8)
+  )
+
+# Display the improved plot
+print(p2)
+```

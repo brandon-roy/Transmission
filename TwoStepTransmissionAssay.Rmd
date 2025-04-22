@@ -1,0 +1,220 @@
+---
+title: "TwosteptransmissionAssay"
+author: "Brandon G Roy"
+date: "2025-01-19"
+output: html_document
+---
+
+```{r}
+library(utils)
+# Import the data
+herbaceous_to_vits <- read.csv("herbaceous_to_vitis.csv")
+same_species_transmission <- read.csv("same_species_transmission.csv")
+
+# View the data
+head(herbaceous_to_vits)
+head(same_species_transmission)
+```
+
+```{r}
+# Convert Percent Infection to numeric
+herbaceous_to_vits$Percent.Infection <- as.numeric(herbaceous_to_vits$Percent.Infection)
+same_species_transmission$Percent.Infection <- as.numeric(same_species_transmission$Percent.Infection)
+
+# Check data structure
+str(herbaceous_to_vits)
+str(same_species_transmission)
+
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(multcomp)
+
+# Perform ANOVA for `herbaceous_to_vits`
+herbaceous_aov <- aov(Percent.Infection ~ Virus.Strain + Source.Plant, data = herbaceous_to_vits)
+summary(herbaceous_aov)
+
+# Tukey's Post-Hoc Test
+herbaceous_tukey <- TukeyHSD(herbaceous_aov)
+herbaceous_tukey
+
+# Perform ANOVA for `same_species_transmission`
+same_species_aov <- aov(Percent.Infection ~ Virus.Strain + Recipient.Plant, data = same_species_transmission)
+summary(same_species_aov)
+
+# Tukey's Post-Hoc Test
+same_species_tukey <- TukeyHSD(same_species_aov)
+same_species_tukey
+
+```
+
+```{r}
+# Summarize data for visualization
+herbaceous_summary <- herbaceous_to_vits %>%
+  group_by(Virus.Strain, Source.Plant) %>%
+  summarise(
+    Mean = mean(Percent.Infection, na.rm = TRUE),
+    SD = sd(Percent.Infection, na.rm = TRUE)
+  )
+
+# Bar plot with error bars
+ggplot(herbaceous_summary, aes(x = Virus.Strain, y = Mean, fill = Source.Plant)) +
+  geom_bar(stat = "identity", position = position_dodge(0.9)) +
+  geom_errorbar(aes(ymin = Mean - SD, ymax = Mean + SD), 
+                position = position_dodge(0.9), width = 0.25) +
+  scale_fill_manual(values = c("#dfaa60", "#e4d56c", "#a6a83e", "#8c6c2f")) +
+  geom_text(aes(label = c("c", "c", "c", "c", "b", "a", "a", "a", "c", "c", "c", "c")), 
+            position = position_dodge(0.9), 
+            vjust = c(-0.5,-0.5,-0.5,-0.5,-3,-3,-2.75,-3.25,-0.5,-0.5,-0.5,-0.5), # Adjust vertical position
+            size = 5) +   # Adjust font size
+  labs(title = "",
+       x = "source plant treatment", y = "percent detected transmission(%)") +
+  scale_y_continuous(limits = c(NA, 100)) +
+  theme_minimal() + theme(text = element_text(size = 12))
+
+# Similarly, visualize for `same_species_transmission`
+same_species_summary <- same_species_transmission %>%
+  group_by(Virus.Strain, Recipient.Plant) %>%
+  summarise(
+    Mean = mean(Percent.Infection, na.rm = TRUE),
+    SD = sd(Percent.Infection, na.rm = TRUE)
+  )
+
+ggplot(same_species_summary, aes(x = Virus.Strain, y = Mean, fill = Recipient.Plant)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_errorbar(aes(ymin = Mean - SD, ymax = Mean + SD), 
+                position = position_dodge(0.9), width = 0.25) +
+  scale_fill_manual(values = c("#dfaa60", "#e4d56c", "#a6a83e", "#8c6c2f")) +
+  geom_text(aes(label = c("c", "c", "c", "c", "c", "b", "ab", "a", "c", "c", "c", "c")), 
+            position = position_dodge(0.9), 
+            vjust = c(-0.5,-0.5,-0.5,-0.5,-7,-6,-2.5,-1,-0.5,-0.5,-0.5,-0.5), # Adjust vertical position
+            size = 5) +   # Adjust font size
+  labs(title = "",
+       x = "source plant treatment", y = "percent detected transmission(%)") +
+  scale_y_continuous(limits = c(NA, 100)) +
+  theme_minimal() + theme(text = element_text(size = 12))
+
+
+# Filter the data for GFLV-F13 only
+gflv_data <- herbaceous_to_vits %>%
+  filter(Virus.Strain == "GFLV-F13")
+
+# Perform ANOVA for differences between Source.Plant
+gflv_aov <- aov(Percent.Infection ~ Source.Plant, data = gflv_data)
+summary(gflv_aov)
+
+# Tukey's Post-Hoc Test for pairwise comparisons
+gflv_tukey <- TukeyHSD(gflv_aov)
+gflv_tukey
+
+# Visualize the Tukey results
+library(ggfortify)
+autoplot(gflv_tukey, which = "Source.Plant") +
+  labs(title = "Tukey's HSD Test: Transmission of GFLV-F13",
+       x = "Source Plant",
+       y = "Difference in Means") +
+  theme_minimal()
+```
+
+```{r}
+
+# Load necessary libraries
+library(dplyr)
+library(multcomp)
+library(multcompView)
+
+# Step 1: Remove special characters, spaces, and periods from names
+clean_names <- function(x) {
+  gsub("[[:punct:][:space:]]", "", x)  # Remove special characters and spaces
+}
+
+# Apply cleaning function to the necessary columns
+herbaceous_to_vits <- herbaceous_to_vits %>%
+  mutate(
+    Source.Plant = sapply(Source.Plant, clean_names),
+    Recipient.Plant = sapply(Recipient.Plant, clean_names),
+    Virus.Strain = sapply(Virus.Strain, clean_names)
+  )
+
+# Step 2: Perform ANOVA with interaction term
+overall_aov <- aov(Percent.Infection ~ Source.Plant * Virus.Strain, data = herbaceous_to_vits)
+summary(overall_aov)
+
+# Step 3: Tukey’s Post-Hoc Test
+overall_tukey <- TukeyHSD(overall_aov)
+
+# Step 4: Generate letter-based grouping
+grouping <- multcompLetters4(overall_aov, overall_tukey)
+print(grouping)
+
+# Step 5: Optional - Add letters to the dataset for clarity
+herbaceous_to_vits <- herbaceous_to_vits %>%
+  mutate(Letters = grouping$`Source.Plant:Virus.Strain`[interaction(Source.Plant, Virus.Strain)])
+
+
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(multcomp)
+library(multcompView)
+
+# Function to clean names by removing special characters, spaces, and periods
+clean_names <- function(x) {
+  gsub("[[:punct:][:space:]]", "", x)  # Remove special characters and spaces
+}
+
+# Function to process a dataset: clean names, perform ANOVA, and generate Tukey's letters
+process_data <- function(data) {
+  # Step 1: Clean names in the dataset
+  data <- data %>%
+    mutate(
+      Source.Plant = sapply(Source.Plant, clean_names),
+      Recipient.Plant = sapply(Recipient.Plant, clean_names),
+      Virus.Strain = sapply(Virus.Strain, clean_names)
+    )
+  
+  # Step 2: Perform ANOVA with interaction term
+  overall_aov <- aov(Percent.Infection ~ Source.Plant * Virus.Strain, data = data)
+  print(summary(overall_aov))
+  
+  # Step 3: Tukey’s Post-Hoc Test
+  overall_tukey <- TukeyHSD(overall_aov)
+  
+  # Step 4: Generate letter-based grouping
+  grouping <- multcompLetters4(overall_aov, overall_tukey)
+  print(grouping)
+  
+  # Step 5: Add letters to the dataset
+  data <- data %>%
+    mutate(Letters = grouping$`Source.Plant:Virus.Strain`[interaction(Source.Plant, Virus.Strain)])
+  
+  # Return processed data
+  return(list(data = data, grouping = grouping))
+}
+
+# Apply to both datasets
+herbaceous_results <- process_data(herbaceous_to_vits)
+same_species_results <- process_data(same_species_transmission)
+
+# Access results
+herbaceous_cleaned <- herbaceous_results$data
+herbaceous_grouping <- herbaceous_results$grouping
+
+same_species_cleaned <- same_species_results$data
+same_species_grouping <- same_species_results$grouping
+
+# Print results for both datasets
+print("Herbaceous to Vitis Results:")
+print(herbaceous_grouping)
+
+print("Same Species Transmission Results:")
+print(same_species_grouping)
+
+```
+
+

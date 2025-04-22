@@ -1,0 +1,651 @@
+---
+title: "index population analysis"
+author: "Brandon G Roy"
+date: "2025-02-20"
+output: html_document
+---
+
+# Nematode population count plots
+```{r}
+
+# Nematode population plotting
+# Load the data
+nematodes <- read_excel("XindexPop2.xlsx")
+
+# Function to create a plot for a given replicate or combined data
+create_tidy_plot <- function(data, replicate = "all", title, colors) {
+  # Filter and summarize data
+  filtered_data <- data %>%
+    filter(replicate == "all" | Replicate == replicate) %>%
+    group_by(treatment) %>%
+    summarize(
+      center_mean = mean(`central normalized average count`, na.rm = TRUE),
+      center_se = sd(`central normalized average count`, na.rm = TRUE) / sqrt(n()),
+      perimeter_mean = mean(`perimeter normalized average count`, na.rm = TRUE),
+      perimeter_se = sd(`perimeter normalized average count`, na.rm = TRUE) / sqrt(n())
+    )
+  
+  # Transform the data for tidy plotting
+  tidy_data <- filtered_data %>%
+    pivot_longer(
+      cols = c(center_mean, perimeter_mean),
+      names_to = "location",
+      values_to = "mean"
+    ) %>%
+    mutate(
+      se = ifelse(location == "center_mean", center_se, perimeter_se),
+      location = ifelse(location == "center_mean", "Center", "Perimeter")
+    )
+
+  # Generate the plot
+  ggplot(tidy_data, aes(x = treatment, y = mean, color = treatment, shape = location)) +
+    geom_bar(
+      aes(fill = treatment), 
+      stat = "identity", 
+      position = position_dodge(width = 0.9), 
+      alpha = 0.85, 
+      color = c("black","NA","black","NA","black","NA","black","NA","black","NA")
+    ) +
+    geom_errorbar(
+      aes(ymin = mean - se, ymax = mean + se),
+      position = position_dodge(width = 0.9), 
+      width = 0.25,
+      color = "black"
+    ) +
+    geom_point(
+      data = data %>%
+        filter(replicate == "all" | Replicate == replicate) %>%
+        pivot_longer(
+          cols = c(`central normalized average count`, `perimeter normalized average count`),
+          names_to = "location",
+          values_to = "count"
+        ) %>%
+        mutate(location = ifelse(location == "central normalized average count", "Center", "Perimeter")),
+      aes(x = treatment, y = count, group = location),
+      alpha = 0.5,
+      position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.9)
+    ) +
+    labs(
+      title = title,
+      x = "Treatment",
+      y = "Normalized Average Count"
+    ) +
+    scale_color_manual(values = colors) +
+    scale_fill_manual(values = colors) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+
+# Define custom color palette
+colors <- c(
+  "mutant GHu 1EK802G" = "#C02D45",
+  "mutant F13 1EG802K" = "#4DACD6",
+  "wildtype F13" = "#0172B8",
+  "wildtype GHu" = "red4",   # Replace "treatment4" with actual name
+  "healthy" = "#4FAE62"    # Replace "treatment5" with actual name
+)
+
+# First plot (First replicate)
+plot1 <- create_tidy_plot(nematodes, 1, "Average Nematode Count, Replicate #1", colors)
+
+# Second plot (Second replicate)
+plot2 <- create_tidy_plot(nematodes, 2, "Average Nematode Count, Replicate #2", colors)
+
+plot3 <- create_tidy_plot(nematodes, "all", "Combined Replicates", colors)
+
+plot1
+plot2
+plot3
+```
+
+```{r}
+# Load necessary libraries
+library(readxl)
+library(tidyverse)
+
+# Import the Excel file (adjust the path if needed)
+df <- read_excel("XindexPop2.xlsx", na = c("-", "NA"))
+
+# Check the column names to ensure they match your expectations
+print(colnames(df))
+
+# Convert key columns to factors (using the exact column names)
+df$Replicate <- as.factor(df$Replicate)
+df$basin     <- as.factor(df$basin)
+df$Treatment <- as.factor(df$treatment)
+
+# Calculate the total recovered count per basin by summing the technical replicates
+df <- df %>%
+  mutate(center_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE),
+         perimeter_total = rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE),
+         diff_total = center_total - perimeter_total)
+
+# View summaries of the computed totals and their differences
+summary(df$center_total)
+summary(df$perimeter_total)
+summary(df$diff_total)
+
+# Testing for normality using the Shapiro-Wilk test
+sw_center <- shapiro.test(df$center_total)
+sw_perimeter <- shapiro.test(df$perimeter_total)
+sw_diff <- shapiro.test(df$diff_total)
+
+print("Shapiro-Wilk Test for center_total:")
+print(sw_center)
+
+print("Shapiro-Wilk Test for perimeter_total:")
+print(sw_perimeter)
+
+print("Shapiro-Wilk Test for differences (center_total - perimeter_total):")
+print(sw_diff)
+
+# Create QQ plots to visually assess normality
+par(mfrow = c(1, 3))  # Set up 3 plots side by side
+
+qqnorm(df$center_total, main = "QQ Plot: Center Total")
+qqline(df$center_total)
+
+qqnorm(df$perimeter_total, main = "QQ Plot: Perimeter Total")
+qqline(df$perimeter_total)
+
+qqnorm(df$diff_total, main = "QQ Plot: Diff (Center - Perimeter)")
+qqline(df$diff_total)
+
+# Reset plotting layout to default
+par(mfrow = c(1, 1))
+
+# Perform a paired t-test comparing the total counts between center and perimeter
+t.test(df$center_total, df$perimeter_total, paired = TRUE)
+
+
+# Perform a Wilcoxon signed-rank test as a nonparametric alternative
+wilcox.test(df$center_total, df$perimeter_total, paired = TRUE)
+print("Wilcoxon signed-rank test results:")
+print(wilcox_test_result)
+
+# Load necessary libraries
+library(readxl)
+library(tidyverse)
+library(lmerTest)  # loads lme4 and provides p-values for lmer models
+
+# Import the Excel file
+df <- read_excel("XindexPop.xlsx", na = c("-", "NA"))
+
+# Check the column names to ensure they match your expectations
+print(colnames(df))
+# Expected: "Replicate", "basin", "treatment", "center 1", "center 2", "center 3", 
+#           "perimeter 1", "perimeter 2", "perimeter 3", ... 
+
+# Convert key columns to factors (using the exact column names)
+df$Replicate <- as.factor(df$Replicate)
+df$basin     <- as.factor(df$basin)
+df$Treatment <- as.factor(df$treatment)
+
+# Calculate the total recovered count per basin by summing the technical replicates
+df <- df %>%
+  mutate(center_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE),
+         perimeter_total = rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE),
+         diff_total = center_total - perimeter_total)
+
+# Reshape the data into long format so that each basin contributes two rows (center and perimeter)
+df_long <- df %>%
+  pivot_longer(
+    cols = c(center_total, perimeter_total),
+    names_to = "location",
+    values_to = "total"
+  )
+
+# Recode location for clarity
+df_long$location <- factor(df_long$location, 
+                           levels = c("center_total", "perimeter_total"), 
+                           labels = c("center", "perimeter"))
+
+# Check the long-format data
+head(df_long)
+
+# Fit a linear mixed-effects model:
+# total ~ location * Treatment + (1 | basin)
+# Here, 'location' (center vs. perimeter) and 'Treatment' are fixed effects (with their interaction),
+# and we include a random intercept for each 'basin' to account for the paired measurements.
+model <- lmer(total ~ location * Treatment + (1 | basin), data = df_long)
+summary(model)
+
+# Perform an ANOVA on the model to examine the fixed effects
+anova(model)
+
+model_fixed <- lm(total ~ location * Treatment, data = df_long)
+summary(model_fixed)
+anova(model_fixed)
+
+
+# Subset the data to include only viral treatments (i.e., exclude healthy plants)
+df_viral <- df_long %>% filter(Treatment != "healthy")
+
+# Check the subset
+table(df_viral$Treatment)
+
+# Fit a fixed-effects model on viral treatments only:
+# total ~ location * Treatment
+model_viral <- lm(total ~ location + Treatment, data = df_viral)
+summary(model_viral)
+anova(model_viral)
+
+# Alternatively, if you wish to simply compare center vs. perimeter across these viral treatments,
+# you can perform a paired t-test. Note that here each basin contributes two rows (center and perimeter).
+# To do a paired t-test, you might need to reshape back to wide format by viral treatments only.
+df_viral_wide <- df %>%
+  filter(treatment != "healthy") %>%  # using the original column name in df
+  mutate(center_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE),
+         perimeter_total = rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE))
+
+# Perform a paired t-test comparing center_total vs. perimeter_total in viral treatments only:
+t_test_viral <- t.test(df_viral_wide$center_total, df_viral_wide$perimeter_total, paired = TRUE)
+t_test_viral
+
+
+# Subset to viral treatments only (excluding healthy)
+df_viral <- df %>% filter(treatment != "healthy")
+
+# Calculate the difference per basin (if not already computed)
+df_viral <- df_viral %>%
+  mutate(diff_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE) - 
+                         rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE))
+
+# Check normality of differences
+shapiro.test(df_viral$diff_total)
+
+
+library(emmeans)
+
+# Using the fixed-effects model you already fit:
+emm <- emmeans(model_fixed, ~ location | Treatment)
+
+# This will compute the pairwise comparisons between 'center' and 'perimeter' within each treatment.
+pairwise_results <- contrast(emm, method = "pairwise", adjust = "tukey")
+summary(pairwise_results)
+
+# First, compute the difference for each basin (if not already done)
+df_viral <- df %>% 
+  filter(treatment != "healthy") %>%  # Exclude healthy if desired
+  mutate(center_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE),
+         perimeter_total = rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE),
+         diff_total = center_total - perimeter_total)
+
+# Run a one-way ANOVA on the difference
+anova_diff <- aov(diff_total ~ treatment + (1 | basin), data = df_viral)
+summary(anova_diff)
+
+# Perform Tukey's HSD post-hoc test
+TukeyHSD(anova_diff)
+
+
+
+# Assuming your data frame is called df and treatment has been set to a factor in df$Treatment
+
+# For Center Totals
+model_center_wide <- lm(center_total ~ Treatment, data = df)
+summary(model_center_wide)
+anova(model_center_wide)
+TukeyHSD(aov(center_total ~ Treatment, data = df))
+
+# For Perimeter Totals
+model_perimeter_wide <- lm(perimeter_total ~ Treatment, data = df)
+summary(model_perimeter_wide)
+anova(model_perimeter_wide)
+TukeyHSD(aov(perimeter_total ~ Treatment, data = df))
+
+# Fit a model for center totals with Treatment and basin as predictors
+model_center_cov <- lm(center_total ~ Treatment + basin, data = df)
+summary(model_center_cov)
+anova(model_center_cov)
+
+# If you want to perform post-hoc comparisons adjusted for basin differences,
+# you can use the emmeans package.
+library(emmeans)
+emm_center_cov <- emmeans(model_center_cov, ~ Treatment)
+pairs(emm_center_cov)
+
+
+
+model_center_poisson <- glm(center_total ~ Treatment, data = df, family = poisson)
+summary(model_center_poisson)
+
+library(emmeans)
+emm_center_poisson <- emmeans(model_center_poisson, ~ Treatment, type = "response")
+pairs(emm_center_poisson)
+
+df <- df %>%
+  mutate(center_total = rowSums(select(., `center 1`, `center 2`, `center 3`), na.rm = TRUE),
+         perimeter_total = rowSums(select(., `perimeter 1`, `perimeter 2`, `perimeter 3`), na.rm = TRUE),
+         diff_total = center_total - perimeter_total)
+
+model_diff <- lm(perimeter_total ~ Treatment, data = df)
+summary(model_diff)
+anova(model_diff)
+TukeyHSD(aov(diff_total ~ Treatment, data = df))
+
+```
+
+```{r}
+
+# Read the Excel file (adjust the path if needed)
+data <- read_excel("XindexPop2.xlsx")
+
+# Ensure treatment and basin are factors
+data <- data %>%
+  mutate(treatment = as.factor(treatment),
+         basin = as.factor(basin))
+
+ggplot(data, aes(x = treatment, y = `total center`)) +
+  geom_boxplot() +
+  labs(title = "Total Center Count by Treatment", y = "Total Center Count")
+
+
+# Fit one-way ANOVA for total center
+anova_center <- aov(`total center` ~ treatment, data = data)
+summary(anova_center)
+
+# Check normality of residuals
+shapiro_center <- shapiro.test(resid(anova_center))
+print(shapiro_center)
+
+# Check homogeneity of variances with Levene's test
+levene_center <- leveneTest(`total center` ~ treatment, data = data)
+print(levene_center)
+
+# If assumptions are met, perform post-hoc Tukey HSD
+tukey_center <- TukeyHSD(anova_center)
+print(tukey_center)
+
+ggplot(data, aes(x = treatment, y = `total perimeter`)) +
+  geom_boxplot() +
+  labs(title = "Total Perimeter Count by Treatment", y = "Total Perimeter Count")
+
+# Fit one-way ANOVA for total perimeter
+anova_perimeter <- aov(`total perimeter` ~ treatment, data = data)
+summary(anova_perimeter)
+
+# Check normality of residuals
+shapiro_perimeter <- shapiro.test(resid(anova_perimeter))
+print(shapiro_perimeter)
+
+# Check homogeneity of variances
+levene_perimeter <- leveneTest(`total perimeter` ~ treatment, data = data)
+print(levene_perimeter)
+
+# If assumptions are met, perform post-hoc Tukey HSD
+tukey_perimeter <- TukeyHSD(anova_perimeter)
+print(tukey_perimeter)
+
+# ----------------------------
+# Optional: If assumptions are not met, use non-parametric tests
+# ----------------------------
+
+# Kruskal-Wallis test for total center
+kruskal_center <- kruskal.test(`total center` ~ treatment, data = data)
+print(kruskal_center)
+
+# Kruskal-Wallis test for total perimeter
+kruskal_perimeter <- kruskal.test(`total perimeter` ~ treatment, data = data)
+print(kruskal_perimeter)
+
+# Reshape data into long format for center and perimeter counts
+data_long <- data %>% 
+  pivot_longer(cols = c(`total center`, `total perimeter`),
+               names_to = "location",
+               values_to = "total_count")
+
+# Convert variables to factors and create a combined factor for treatment and location
+data_long <- data_long %>%
+  mutate(treatment = as.factor(treatment),
+         location = factor(location, 
+                           levels = c("total center", "total perimeter"),
+                           labels = c("Center", "Perimeter")),
+         trt_loc = factor(paste(treatment, location, sep = " ")))
+
+model <- aov(total_count ~ trt_loc, data = data_long)
+summary(model)
+
+# Obtain estimated marginal means and the compact letter display for pairwise comparisons
+emm <- emmeans(model, ~ trt_loc)
+cld_output <- cld(emm, Letters = letters, adjust = "tukey")
+
+data_long <- left_join(data_long, cld_df, by = "trt_loc")
+
+# Calculate a label position (e.g., 5 units above the max count for each group)
+label_positions <- data_long %>% 
+  group_by(trt_loc) %>% 
+  summarise(ypos = max(total_count) + 5, .groups = "drop")
+
+# Merge the label positions into the data (for unique labels per group)
+data_long <- left_join(data_long, label_positions, by = "trt_loc")
+
+ggplot(data_long, aes(x = trt_loc, y = total_count, fill = trt_loc)) +
+  geom_boxplot() +
+  # Use distinct rows for labels so that each group is labeled once
+  geom_text(data = distinct(data_long, trt_loc, ypos.y, .keep_all = TRUE),
+            aes(label = .group, y = 65), size = 8) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1),
+        legend.position = "none", text = element_text(size = 20)) +
+  scale_fill_manual(values = c("#4FAE62","#4FAE62","#4DACD6","#4DACD6","#C02D45","#C02D45","#0172B8","#0172B8","red4","red4"))
+```
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(emmeans)
+
+# Read the Excel file (adjust the path if needed)
+data <- read_excel("XindexPop2.xlsx")
+
+# Ensure treatment and basin are factors
+data <- data %>%
+  mutate(treatment = as.factor(treatment),
+         basin = as.factor(basin))
+
+# Assume your data frame is 'df' and that the replicate is stored in 'Replicate'
+# Create a new column for the starting number of nematodes:
+data <- data %>%
+  mutate(start_nematodes = ifelse(Replicate == "1", 900,
+                           ifelse(Replicate == "2", 550, NA)))
+
+# Ensure the Treatment factor is ordered as desired:
+treatment_order <- c("healthy", "mutant F13 1EG802K", "mutant GHu 1EK802G", "wildtype F13", "wildtype GHu")
+data$treatment <- factor(data$treatment, levels = treatment_order)
+
+# Define your custom treatment colors:
+treatment_colors <- c("healthy" = "#4FAE62",
+                      "mutant F13 1EG802K" = "#4DACD6",
+                      "mutant GHu 1EK802G" = "#C02D45",
+                      "wildtype F13" = "#0172B8",
+                      "wildtype GHu" = "red4")
+
+# Fit a Poisson GLM for center totals with an offset for starting nematodes:
+model_center_poisson <- glm(`total center` ~ treatment + basin + offset(log(start_nematodes)), 
+                            data = data, family = poisson)
+summary(model_center_poisson)
+
+# (You could do a similar model for perimeter_total if desired.)
+
+# Now, to plot the mean center and perimeter totals side by side by Treatment,
+# we can calculate summary statistics first.
+df_long <- data %>%
+  select(treatment, `total center`, `total perimeter`) %>%
+  pivot_longer(
+    cols = c(`total center`, `total perimeter`),
+    names_to = "Location",
+    values_to = "Total"
+  ) %>%
+  mutate(Location = if_else(Location == "total center", "Center", "Perimeter"))
+
+# Compute summary statistics (mean and standard error) for each Treatment × Location:
+df_summary <- df_long %>%
+  group_by(treatment, Location) %>%
+  summarise(mean_total = mean(Total, na.rm = TRUE),
+            se_total = sd(Total, na.rm = TRUE) / sqrt(n()),
+            .groups = "drop")
+
+# Create a grouped bar plot with error bars:
+ggplot(df_summary, aes(x = treatment, y = mean_total, fill = treatment, alpha = Location)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_total - se_total, ymax = mean_total + se_total),
+                position = position_dodge(width = 0.9), width = 0.2) +
+  scale_fill_manual(values = treatment_colors) +
+  scale_alpha_manual(values = c("Center" = 1, "Perimeter" = 0.5)) +
+  labs(title = "Center and Perimeter Totals by Treatment",
+       x = "Treatment",
+       y = "Mean Total Count") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+
+```
+```{r}
+
+# Normalization based on the deposition of nematodes at the start of the experiment
+
+data <- data %>%
+  mutate(
+    normalized_center = `total center` / start_nematodes,
+    normalized_perimeter = `total perimeter` / start_nematodes
+  )
+
+df_long_norm <- data %>%
+  select(treatment, normalized_center, normalized_perimeter) %>%
+  pivot_longer(
+    cols = c(normalized_center, normalized_perimeter),
+    names_to = "Location",
+    values_to = "Normalized_Total"
+  ) %>%
+  mutate(Location = if_else(Location == "normalized_center", "Center", "Perimeter"))
+
+# Compute summary statistics for the normalized data
+df_summary_norm <- df_long_norm %>%
+  group_by(treatment, Location) %>%
+  summarise(mean_norm = mean(Normalized_Total, na.rm = TRUE),
+            se_norm = sd(Normalized_Total, na.rm = TRUE) / sqrt(n()),
+            .groups = "drop")
+
+# Plot normalized recovery rates for Center and Perimeter side by side for each treatment:
+ggplot(df_summary_norm, aes(x = treatment, y = mean_norm, fill = treatment, alpha = Location)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_norm - se_norm, ymax = mean_norm + se_norm),
+                position = position_dodge(width = 0.9), width = 0.2) +
+  scale_fill_manual(values = treatment_colors) +
+  scale_alpha_manual(values = c("Center" = 1, "Perimeter" = 0.5)) +
+  labs(title = "Normalized Recovery Rates by Treatment",
+       x = "Treatment",
+       y = "Proportion Recovered") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+# Run a linear model on the normalized recovery data:
+model_norm <- lm(Normalized_Total ~ treatment * Location, data = df_long_norm)
+summary(model_norm)
+anova(model_norm)
+
+
+
+
+
+
+# Read the Excel file (adjust the path if needed)
+data <- read_excel("XindexPop2.xlsx")
+
+# Ensure treatment and basin are factors
+data <- data %>%
+  mutate(treatment = as.factor(treatment),
+         basin = as.factor(basin))
+
+# Assume your data frame is 'df' and that the replicate is stored in 'Replicate'
+# Create a new column for the starting number of nematodes:
+data <- data %>%
+  mutate(start_nematodes = ifelse(Replicate == "1", 900,
+                           ifelse(Replicate == "2", 550, NA)))
+
+
+# Create normalized columns if not already done:
+data47 <- data %>%
+  mutate(
+    normalized_center = `total center` / start_nematodes,
+    normalized_perimeter = `total perimeter` / start_nematodes
+  )
+
+# Pivot to long format including the basin identifier:
+df_long_norm <- data47 %>%
+  select(treatment, basin, normalized_center, normalized_perimeter, Replicate) %>%
+  pivot_longer(
+    cols = c(normalized_center, normalized_perimeter),
+    names_to = "Location",
+    values_to = "Normalized_Total"
+  ) %>%
+  mutate(Location = if_else(Location == "normalized_center", "Center", "Perimeter"))
+
+# Now pivot back to wide format, ensuring basin is kept:
+df_wide_norm <- df_long_norm %>%
+  pivot_wider(
+    id_cols = c(treatment, basin, Replicate),
+    names_from = Location,
+    values_from = Normalized_Total
+  )
+
+# Check the resulting wide data:
+head(df_wide_norm)
+# It should have columns: treatment, basin, Center, Perimeter
+
+# Perform paired t-test within each treatment group:
+paired_tests <- data47 %>%
+  group_by(treatment) %>%
+  summarise(
+    t_test = list(t.test(normalized_center, normalized_perimeter, paired = TRUE))
+  ) %>%
+  mutate(tidy_results = map(t_test, broom::tidy))
+
+
+
+# --- STEP 6: Create the grouped bar plot with error bars ---
+# Define treatment order and colors (adjust if needed):
+treatment_order <- c("healthy", "mutant F13 1EG802K", "mutant GHu 1EK802G", "wildtype F13", "wildtype GHu")
+data$treatment <- factor(data$treatment, levels = treatment_order)
+
+paired_tests <- df_wide_norm %>%
+  group_by(treatment) %>%
+  summarise(
+    t_test = list(t.test(Center, Perimeter, paired = TRUE))
+  ) %>%
+  mutate(tidy_results = map(t_test, broom::tidy)) %>%
+  unnest(tidy_results) %>%
+  select(treatment, p.value)
+
+
+
+df_summary_max <- df_summary_norm %>%
+  group_by(treatment) %>%
+  summarise(max_value = max(mean_norm + se_norm), .groups = "drop")
+
+# Join the p-values with the maximum values:
+pvals_df <- left_join(paired_tests, df_summary_max, by = "treatment")
+
+ggplot(df_summary_norm, aes(x = treatment, y = mean_norm, fill = treatment, alpha = Location)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_norm - se_norm, ymax = mean_norm + se_norm),
+                position = position_dodge(width = 0.9), width = 0.2) +
+  scale_fill_manual(values = treatment_colors) +
+  scale_alpha_manual(values = c("Center" = 1, "Perimeter" = 0.5)) +
+  labs(title = "",
+       x = "",
+       y = "Proportion Recovered") +
+  theme_minimal() +
+  theme(legend.title = element_blank(), axis.text = element_text(size = 13))
+# --- STEP 7: Add p-value annotations on top of each treatment group ---
+# Adjust the y-offset as needed; here we add 0.01
+p 
+
+```

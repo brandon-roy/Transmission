@@ -1,0 +1,1558 @@
+---
+title: "TransmissionAssayRhizo"
+author: "Brandon G Roy"
+date: "2025-01-25"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(tidyr)
+library(readxl)
+library(dplyr)
+library(multcompView)
+library(FSA)
+library(corrplot)
+library(factoextra)
+library(lme4)
+library(lmerTest)
+library(psych)
+library(FSA)
+library(lattice)
+library(coin)
+library(rcompanion)
+library(PMCMRplus)
+library(MASS)
+library(ggplot2)
+#library(hrbrthemes)
+library(xlsx)
+library(emmeans)
+library(rgl)
+library(plotly)
+#library(gg3D)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggbeeswarm)
+library(patchwork)
+```
+
+```{r}
+
+# Import the Excel files
+file1 <- "Rhizo_TransmissionAssay1.xlsx"
+file2 <- "Rhizo_TransmissionAssay2.xlsx"
+
+data1 <- read_excel(file1)
+data2 <- read_excel(file2)
+```
+
+```{r}
+# Separate data into 'center' and 'perimeter' based on binary columns
+center_data1 <- data1 %>% filter(center == 1)
+perimeter_data1 <- data1 %>% filter(perimeter == 1)
+
+center_data2 <- data2 %>% filter(center == 1)
+perimeter_data2 <- data2 %>% filter(perimeter == 1)
+```
+
+```{r}
+
+# Preprocess the `roi` column to remove hyphens and spaces
+data1 <- data1 %>%
+  mutate(`sample_ID` = gsub("[- ]", "", `sample_ID`))
+
+# Merge rows based on `roi` in `data1`
+data1_merged <- data1 %>%
+  group_by(`sample_ID`) %>%
+  filter(n() > 1) %>%  # Keep groups with more than one row for merging
+  summarise(
+    across(
+      20:50,
+      ~ ifelse(sum(!is.na(.)) > n() / 2, mean(., na.rm = TRUE), NA),
+      .names = "{.col}"
+    ),
+    .groups = "drop"
+  ) %>%
+  right_join(
+    data1 %>% filter(!duplicated(`sample_ID`)) %>% select(1:20),
+    by = "sample_ID"
+  )  # Retain non-numeric columns for distinct `roi`
+
+# Add a replicate identifier
+data1_merged <- data1_merged %>% mutate(replicate = "Replicate 1")
+
+```
+
+```{r}
+data2 <- data2 %>%
+  mutate(`sample_ID` = gsub("[- ]", "", `sample_ID`))
+
+# Merge rows based on `sample ID` in `data2`
+data2_merged <- data2 %>%
+  group_by(`sample_ID`) %>%
+  summarise(
+    across(
+      20:50,
+      mean,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) %>%
+  right_join(
+    data2 %>% filter(!duplicated(`sample_ID`)) %>% select(1:20),
+    by = "sample_ID"
+  )
+
+# Add a replicate identifier
+data2_merged <- data2_merged %>% mutate(replicate = "Replicate 2")
+
+```
+
+```{r}
+
+# Combine both datasets after merging
+merged_data <- bind_rows(data1_merged, data2_merged)
+```
+
+```{r}
+
+# Select only numeric columns for correlation analysis
+numeric_data <- merged_data %>%
+  select(where(is.numeric))  # Extract numeric columns only
+
+# Remove columns 28, 31, and 43
+numeric_data2 <- numeric_data[, -c(28:31,32,34,38,41:44)]
+
+# Compute the correlation matrix, ignoring NA values
+correlation_matrix <- cor(numeric_data2, use = "pairwise.complete.obs")
+
+# Display the correlation matrix
+print(correlation_matrix)
+
+corrplot(
+  correlation_matrix,
+  method = "color",         # Use colored tiles
+  type = "lower",           # Show only the upper triangle
+  order = "hclust",
+  tl.col = "black",         # Trait labels in black
+  tl.srt = 45, cl.cex = 0.75 ,
+  col = colorRampPalette(c("blue", "white", "red"))(200) # Color gradient
+)
+
+```
+
+```{r}
+
+```
+
+```{r}
+# Plot and visualize central plant root architecture traits
+
+# Load necessary libraries
+library(ggplot2)
+library(ggbeeswarm)
+
+# Filter for center plants only
+center_plants <- merged_data %>%
+  filter(center == 1)  # Assuming `center` is a binary column
+
+# Define a function to create violin plots with beeswarm for a given trait
+plot_violin_beeswarm <- function(data, trait, y_label, title) {
+  ggplot(data, aes(x = factor(treatment), y = .data[[trait]], fill = factor(treatment))) +
+    geom_violin(trim = FALSE, alpha = 0.7) +
+    geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+    labs(
+      title = title,
+      x = "Treatment",
+      y = y_label,
+      fill = "Treatment"
+    ) +
+    scale_fill_manual(values = c("#4DACD6","#C02D45","#0172B8","red4")) +  # Use a visually appealing palette
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Create plots for selected root traits
+plot_violin_beeswarm(
+  data = center_plants,
+  trait = "number of root tips",
+  y_label = "Root Tip Number",
+  title = "Root Tip Number - Center Plants"
+)
+
+plot_violin_beeswarm(
+  data = center_plants,
+  trait = "average diameter (mm)",
+  y_label = "Average Diameter (mm)",
+  title = "Average Diameter - Center Plants"
+)
+
+plot_violin_beeswarm(
+  data = center_plants,
+  trait = "surface area (mm^2)",
+  y_label = "Surface Area (mm^2)",
+  title = "Surface Area - Center Plants"
+)
+
+
+
+
+```
+
+```{r}
+# Filter for center plants only
+perimeter_plants <- merged_data %>%
+  filter(perimeter == 1)  # Assuming `perimeter` is a binary column
+
+# Define a function to create violin plots with beeswarm for a given trait
+plot_violin_beeswarm <- function(data, trait, y_label, title) {
+  ggplot(data, aes(x = factor(treatment), y = .data[[trait]], fill = factor(treatment))) +
+    geom_violin(trim = FALSE, alpha = 0.7) +
+    geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+    labs(
+      title = title,
+      x = "Treatment",
+      y = y_label,
+      fill = "Treatment"
+    ) +
+    scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4")) +  # Use a visually appealing palette
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Create plots for selected root traits
+plot_violin_beeswarm(
+  data = perimeter_plants,
+  trait = "number of root tips",
+  y_label = "Root Tip Number",
+  title = "Root Tip Number - Perimeter Plants"
+)
+
+plot_violin_beeswarm(
+  data = perimeter_plants,
+  trait = "average diameter (mm)",
+  y_label = "Average Diameter (mm)",
+  title = "Average Diameter - Perimeter Plants"
+)
+
+plot_violin_beeswarm(
+  data = perimeter_plants,
+  trait = "surface area (mm^2)",
+  y_label = "Surface Area (mm^2)",
+  title = "Surface Area - Perimeter Plants"
+)
+
+```
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggbeeswarm)
+library(patchwork)
+
+# Convert your merged data to long format for the selected root traits.
+df_long <- merged_data %>%
+  mutate(Location = case_when(
+    center == 1 ~ "Center",
+    perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  pivot_longer(
+    cols = c(`number of root tips`, `average diameter (mm)`, `surface area (mm^2)`),
+    names_to = "Trait",
+    values_to = "Value"
+  )
+
+# Top plot: Root Tip Number, keeping facet strip labels (fixed y-scale)
+p_root_tips <- df_long %>%
+  filter(Trait == "number of root tips") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "Root Tip Number") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +  # fixed scales so both facets share the same y-axis
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),      # remove x-axis tick labels
+        axis.title.x = element_blank(),     # remove x-axis title
+        legend.position = "none")
+
+# Middle plot: Average Diameter, with fixed y-scale and facet strip text removed
+p_avg_diam <- df_long %>%
+  filter(Trait == "average diameter (mm)") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "Average Diameter (mm)") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_blank(),  # remove facet strip labels
+        legend.position = "none")
+
+# Bottom plot: Surface Area, with fixed y-scale and facet strip text removed
+p_surface_area <- df_long %>%
+  filter(Trait == "surface area (mm^2)") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "Surface Area (mm^2)") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_blank(),  # remove facet strip labels
+        legend.position = "none")
+
+# Combine the three plots vertically using patchwork
+combined_plot <- p_root_tips / p_avg_diam / p_surface_area
+print(combined_plot)
+
+
+# Convert your merged data to long format for the selected root traits.
+df_long <- merged_data %>%
+  mutate(Location = case_when(
+    center == 1 ~ "Center",
+    perimeter == 1 ~ "Perimeter",
+    TRUE ~ NA_character_
+  )) %>%
+  pivot_longer(
+    cols = c(`volume (mm^3)`, `total root length (mm)`, `branching frequency (mm^-1)`),
+    names_to = "Trait",
+    values_to = "Value"
+  )
+
+
+p_root_vol <- df_long %>%
+  filter(Trait == "volume (mm^3)") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "root volume (mm^3)") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +  # fixed scales so both facets share the same y-axis
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),      # remove x-axis tick labels
+        axis.title.x = element_blank(),     # remove x-axis title
+        legend.position = "none")
+
+# Middle plot: Average Diameter, with fixed y-scale and facet strip text removed
+p_length <- df_long %>%
+  filter(Trait == "total root length (mm)") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "total root length (mm)") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_blank(),  # remove facet strip labels
+        legend.position = "none")
+
+# Bottom plot: Surface Area, with fixed y-scale and facet strip text removed
+p_branching <- df_long %>%
+  filter(Trait == "branching frequency (mm^-1)") %>%
+  ggplot(aes(x = factor(treatment), y = Value, fill = factor(treatment))) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_beeswarm(size = 1, color = "black", alpha = 0.6) +
+  labs(y = "branching frequency (mm^-1)") +
+  scale_fill_manual(values = c("#4FAE62", "#4DACD6", "#C02D45", "#0172B8", "red4")) +
+  facet_wrap(~Location, scales = "fixed") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_blank(),  # remove facet strip labels
+        legend.position = "none")
+
+# Combine the three plots vertically using patchwork
+combined_plot <- p_root_vol / p_length / p_branching
+print(combined_plot)
+```
+
+
+```{r}
+
+# --- Step 0. Load necessary packages ---
+library(readxl)
+library(dplyr)
+library(tidyr)
+
+# --- Step 1. Read and prepare the transmission assay data ---
+
+# Read the transmission data for cohort 1 and cohort 2.
+# (Adjust the file paths and sheet names as needed.)
+rhizo1 <- read_excel("Rhizo_TransmissionAssay1.xlsx") %>%
+  mutate(cohort = 1)  # Assumed to be cohort 1
+
+rhizo2 <- read_excel("Rhizo_TransmissionAssay2.xlsx") %>%
+  mutate(cohort = 2)  # Assumed to be cohort 2
+
+# Combine the two datasets.
+rhizo_trans <- bind_rows(rhizo1, rhizo2)
+
+# (Optional: Inspect the names of your transmission data.
+#  We assume that there is a column 'location' with values "Center" or "Perimeter",
+#  a numeric 'virus_status' (1 if positive, 0 otherwise),
+#  and columns for Basin and treatment. If the treatment column is named differently (e.g., "Inoculum Treatment"),
+#  you can rename it below.)
+rhizo_trans <- rhizo_trans %>%
+  mutate(
+    Basin = as.character(basin),
+    treatment = as.character(treatment)  # use Inoculum Treatment if available
+  )
+
+# --- Step 2. Compute Transmission Metrics from Perimeter Plants ---
+# We calculate transmission only from perimeter plants.
+perimeter_transmission <- rhizo_trans %>%
+  filter(perimeter == "1") %>%
+  group_by(basin, treatment, cohort, scan) %>%
+  summarise(
+    total_perimeter = n(),
+    positive_perimeter = sum(`virus status`, na.rm = TRUE),
+    TransmissionRate = positive_perimeter / total_perimeter,
+    TransmissionPercent = TransmissionRate * 100,
+    .groups = "drop"
+  )
+
+# --- Step 3. Merge Transmission Data with the qPCR/Root Traits Data ---
+
+# Ensure that your merged_data (which holds root traits and qPCR info) has keys as characters.
+merged_data <- merged_data %>%
+  mutate(
+    Basin = as.character(basin),
+    treatment = as.character(treatment)
+  )
+
+# Merge only for cohort 2 if your df_qpcr transmission data should only merge to cohort 2.
+# (For now, we merge using all cohorts in perimeter_transmission.)
+final_data <- merged_data %>%
+  left_join(perimeter_transmission, by = c("basin", "treatment", "cohort"))
+
+final_data <- final_data %>%
+  mutate(TransmissionPercent = TransmissionRate * 100)
+
+if (identical(final_data[["sample_ID"]], final_data[["number of root tips"]])) {
+  final_data[["number of root tips"]] <- NULL
+}
+
+final_data <- final_data[!duplicated(final_data[, c("sample_ID", "number of branch points")]), ]
+# Inspect the merged data:
+head(final_data)
+
+# --- Step 4. Run Linear Models to Assess How Root Traits Influence Transmission ---
+
+# For example, assume final_data contains root traits with column names exactly as:
+#   - `number of root tips`
+#   - `average diameter (mm)`
+#   - `surface area (mm^2)`
+# and a response variable TransmissionRate.
+
+# Model for cohort 1:
+model_cohort1 <- lm(TransmissionRate ~ `number of root tips` + `average diameter (mm)` + `surface area (mm^2)`,
+                    data = final_data %>% filter(cohort == 1))
+summary(model_cohort1)
+
+# Model for cohort 2:
+model_cohort2 <- lm(TransmissionRate ~ `number of root tips` + `average diameter (mm)` + `surface area (mm^2)`,
+                    data = final_data %>% filter(cohort == 2))
+summary(model_cohort2)
+
+# Optionally, use the broom package to tidy up the results:
+library(broom)
+tidy_model_cohort1 <- tidy(model_cohort1)
+tidy_model_cohort2 <- tidy(model_cohort2)
+
+print(tidy_model_cohort1)
+print(tidy_model_cohort2)
+
+# Combined fixed-effects linear model on the merged data
+model_combined <- lm(TransmissionRate ~ `number of root tips` +
+                       `average diameter (mm)` +
+                       `surface area (mm^2)` +
+                       factor(cohort), 
+                     data = final_data)
+summary(model_combined)
+
+# Optionally, if you wish to account for variability across Basins using a random intercept:
+library(lme4)
+model_combined_mixed <- lmer(TransmissionRate ~ `number of root tips` +
+                               `average diameter (mm)` +
+                               `surface area (mm^2)` +
+                               factor(cohort) + (1 | Basin), 
+                             data = final_data)
+summary(model_combined_mixed)
+
+
+# Subset data for center plants and for perimeter plants
+final_data_center <- final_data %>% 
+  filter(center == 1)   # Center plants
+
+final_data_perimeter <- final_data %>% 
+  filter(perimeter == 1)   # Perimeter plants
+
+# --- Linear Models for Center Plants ---
+# (Note: Since all center plants are virus positive, TransmissionRate may show low variability,
+#  but they can still be modeled if you have a different transmission measure or additional variation.)
+model_center <- lm(TransmissionRate ~ `number of root tips` +
+                     `average diameter (mm)` +
+                     `surface area (mm^2)` +
+                     factor(cohort), 
+                   data = final_data_center)
+summary(model_center)
+tidy(model_center)
+
+# --- Linear Models for Perimeter Plants ---
+model_perimeter <- lm(TransmissionRate ~ `number of root tips` +
+                        `average diameter (mm)` +
+                        `surface area (mm^2)` +
+                        factor(cohort), 
+                      data = final_data_perimeter)
+summary(model_perimeter)
+tidy(model_perimeter)
+
+# Load necessary packages
+library(dplyr)
+library(broom)
+library(ggplot2)
+
+# Define the list of root traits
+root_traits <- c("number of root tips", "average diameter (mm)", 
+                 "surface area (mm^2)", "total root length (mm)", 
+                 "volume (mm^3)")
+
+# -------------------------------
+# Fit Models for Each Group
+# -------------------------------
+
+# Combined model (all plants)
+model_combined <- lm(TransmissionRate ~ `number of root tips` +
+                        `average diameter (mm)` +
+                        `surface area (mm^2)` +
+                        `total root length (mm)` +
+                        `volume (mm^3)` +
+                        factor(cohort),
+                      data = final_data)
+tidy_combined <- tidy(model_combined, conf.int = TRUE) %>%
+  mutate(group = "Combined")
+
+# Center model
+model_center <- lm(TransmissionRate ~ `number of root tips` +
+                      `average diameter (mm)` +
+                      `surface area (mm^2)` +
+                      `total root length (mm)` +
+                      `volume (mm^3)` +
+                      factor(cohort),
+                    data = final_data_center)
+tidy_center <- tidy(model_center, conf.int = TRUE) %>%
+  mutate(group = "Center")
+
+# Perimeter model
+model_perimeter <- lm(TransmissionRate ~ `number of root tips` +
+                         `average diameter (mm)` +
+                         `surface area (mm^2)` +
+                         `total root length (mm)` +
+                         `volume (mm^3)` +
+                         factor(cohort),
+                       data = final_data_perimeter)
+tidy_perimeter <- tidy(model_perimeter, conf.int = TRUE) %>%
+  mutate(group = "Perimeter")
+
+# -------------------------------
+# Combine the Model Results
+# -------------------------------
+all_models <- bind_rows(tidy_center, tidy_perimeter, tidy_combined)
+
+# Check the term names in the combined tidy output
+unique_terms <- unique(all_models$term)
+print(unique_terms)
+
+# Update root_traits to match the actual term names from the model:
+root_traits <- c("`number of root tips`", 
+                 "`average diameter (mm)`", 
+                 "`surface area (mm^2)`", 
+                 "`total root length (mm)`", 
+                 "`volume (mm^3)`")
+
+# Filter for only the root trait predictors (remove intercept and cohort coefficients)
+model_results <- all_models %>%
+  dplyr::filter(term %in% root_traits) %>%
+  rename(trait = term)
+
+# -------------------------------
+# Create the Graphical Representation
+# -------------------------------
+# We want a grid with rows = trait and columns = group.
+# Since there is only one coefficient per cell, we can use a dummy x value.
+
+ggplot(model_results, aes(x = 1, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  facet_grid(trait ~ group, scales = "free_y") +
+  labs(x = "", y = "Coefficient Estimate") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        strip.text = element_text(size = 10))
+
+
+library(ggpmisc)
+
+# --- Step 1. Create Subsets for the Three Analysis Groups ---
+center_df <- final_data %>% 
+  filter(center == 1) %>% 
+  mutate(AnalysisGroup = "Center")
+
+perimeter_df <- final_data %>% 
+  filter(perimeter == 1) %>% 
+  mutate(AnalysisGroup = "Perimeter")
+
+combined_df <- final_data %>% 
+  mutate(AnalysisGroup = "Combined")
+
+# Combine all three subsets into one data frame.
+analysis_df <- bind_rows(center_df, perimeter_df, combined_df)
+
+# --- Step 2. Pivot the Data into Long Format for the Root Traits ---
+# Define the root trait columns (make sure the names match exactly your data)
+traits <- c("number of root tips", "average diameter (mm)", 
+            "surface area (mm^2)", "total root length (mm)", 
+            "volume (mm^3)")
+
+analysis_long <- analysis_df %>%
+  pivot_longer(
+    cols = all_of(traits),
+    names_to = "Trait",
+    values_to = "TraitValue"
+  )
+
+# --- Step 3. Create the Facetted Plot ---
+# We plot TransmissionRate (y-axis) vs. TraitValue (x-axis).
+# The plot is facetted so that rows correspond to the individual traits and
+# columns correspond to the three groups: Center, Perimeter, and Combined.
+# The x-axis scales are set to free so that each trait's range is used appropriately.
+ggplot(analysis_long, aes(x = TraitValue, y = TransmissionRate)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  stat_poly_eq(
+    formula = y ~ x,
+    aes(label = paste(..eq.label.., ..p.value.label.., sep = "~~")),
+    parse = TRUE,
+    label.x.npc = "right",
+    label.y.npc = 0.15
+  ) +
+  facet_grid(Trait ~ AnalysisGroup, scales = "free_x") +
+  labs(x = "Trait Value", y = "Transmission Rate") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10))
+
+center_df <- final_data %>% 
+  filter(center == 1) %>% 
+  mutate(AnalysisGroup = "Center")
+
+perimeter_df <- final_data %>% 
+  filter(perimeter == 1) %>% 
+  mutate(AnalysisGroup = "Perimeter")
+
+combined_df <- final_data %>% 
+  mutate(AnalysisGroup = "Combined")
+
+analysis_df <- bind_rows(center_df, perimeter_df, combined_df)
+
+# Pivot the data into long format for the five root traits.
+traits <- c("number of root tips", "average diameter (mm)", 
+            "surface area (mm^2)", "total root length (mm)", 
+            "volume (mm^3)")
+
+analysis_long <- analysis_df %>%
+  pivot_longer(
+    cols = all_of(traits),
+    names_to = "Trait",
+    values_to = "TraitValue"
+  )
+
+# Create the facetted plot:
+ggplot(analysis_long, aes(x = TraitValue, y = TransmissionPercent)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm", se = TRUE, color = "brown") +
+  stat_poly_eq(
+    formula = y ~ x,
+    aes(label = paste(..p.value.label.., "\n", ..eq.label.., sep = "")),
+    parse = TRUE,
+    label.x.npc = "right",
+    label.y.npc = 0.15
+  ) +
+  facet_grid(AnalysisGroup ~ Trait, scales = "free_x") +
+  labs(x = "Trait Value", y = "Transmission Rate") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10),axis.text.x = element_text(angle = 45, hjust = 1))  +
+  scale_y_continuous(limits = c(0, 125), breaks = c(0, 25, 50, 75, 100))
+
+
+library(dplyr)
+library(broom)
+
+# Step 1. Select the response and predictor columns
+# Assuming TransmissionRate is the response variable in final_data,
+# and that the root traits are in columns 2 to 11 and 13 to 28.
+predictor_columns <- c(names(final_data)[2:11],names(final_data)[34],names(final_data)[41],names(final_data)[52])
+
+model_data <- final_data %>% 
+  select(TransmissionRate, all_of(predictor_columns))
+
+# Step 2. Fit the full linear model using TransmissionRate as the response
+full_model <- lm(TransmissionRate ~ ., data = model_data)
+
+# Step 3. Tidy the model output (including 95% confidence intervals)
+tidy_model <- tidy(full_model, conf.int = TRUE)
+tidy_model
+# Step 4. Filter for significant predictors (p-value < 0.05) and remove the intercept
+significant_predictors <- tidy_model %>% 
+  filter(term != "(Intercept)" & p.value < 0.05) %>%
+  arrange(p.value)
+
+# Step 5. Print the table summary of significant predictors
+print(significant_predictors)
+
+```
+
+
+```{r}
+# ---- Install and Load Required Packages ----
+if (!require("readxl")) install.packages("readxl")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("ggpubr")) install.packages("ggpubr")
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+
+# ---- Read the Data ----
+# Adjust the file path if necessary.
+df <- read_excel("qPCR central root titer.xlsx")
+
+# View a few rows to check the data
+head(df)
+str(df)
+
+# ---- Rename Columns for Easier Handling ----
+# Rename columns to remove spaces/special characters.
+df <- df %>% rename(
+  treatment      = treatment,
+  trans_events   = `transmission events nearby`,
+  basin          = basin,
+  plant          = plant,
+  dpi            = `days post inoculation`,
+  norm_factor    = `Norm factor`,
+  GFLV_Cq        = `GFLV Cq`,
+  FBOX_Cq        = `FBOX Cq`,
+  exp_ddCq       = `2exp∆∆Cq`,
+  norm_2exp_ddCq = `Normalized 2exp∆∆Cq`,
+  log_exp_ddCq   = `Log(2exp∆∆Cq)`,
+  log_normalized = `Log normalized`
+)
+
+# ---- Convert Key Variables to Factors ----
+df$treatment    <- as.factor(df$treatment)
+df$trans_events <- as.factor(df$trans_events)
+df$basin        <- as.factor(df$basin)
+df$plant        <- as.factor(df$plant)
+
+# -----------------------------------------------------------------------------
+# Graph 1: Box Plot of Log Normalized Expression by Treatment,
+# Faceted by Transmission Events Nearby
+# -----------------------------------------------------------------------------
+ggplot(df, aes(x = trans_events, y = log_normalized, fill = treatment)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) + 
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  facet_wrap(~ treatment, nrow = 1) + 
+  theme_minimal() +
+  labs(title = "Log Normalized Expression by Treatment\nFaceted by Transmission Events Nearby",
+       x = "Treatment",
+       y = "Log Normalized Expression") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4"))
+
+ggplot(df, aes(x = treatment, y = log_normalized, fill = treatment)) +
+  geom_boxplot(outlier.shape = 1, alpha = 0.7) + 
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  facet_wrap(~  `total events in basin`, nrow = 1) + 
+  theme_minimal() +
+  labs(title = "Log Normalized Expression by Treatment\nFaceted by Transmission Events Nearby",
+       x = "Treatment",
+       y = "Log Normalized Expression") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("#4FAE62","#4DACD6","#C02D45","#0172B8","red4"))
+# -----------------------------------------------------------------------------
+# Graph 2: Scatter Plot of Log Normalized Expression vs. Days Post Inoculation
+# Points are colored by treatment and shaped by basin.
+# -----------------------------------------------------------------------------
+scatter_dpi <- ggplot(df, aes(x = dpi, y = log_normalized, color = treatment, shape = basin)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "Log Normalized Expression vs. Days Post Inoculation",
+       x = "Days Post Inoculation",
+       y = "Log Normalized Expression") +
+  theme(legend.position = "right")
+print(scatter_dpi)
+
+# -----------------------------------------------------------------------------
+# Graph 3: Scatter Plot Faceted by Plant
+# This plot shows how expression changes with dpi for each plant.
+# -----------------------------------------------------------------------------
+scatter_plant <- ggplot(df, aes(x = dpi, y = log_normalized, color = treatment)) +
+  geom_point(size = 3, alpha = 0.8) +
+  facet_wrap(~ plant) +
+  theme_minimal() +
+  labs(title = "Log Normalized Expression vs. Days Post Inoculation\nFaceted by Plant",
+       x = "Days Post Inoculation",
+       y = "Log Normalized Expression") +
+  theme(legend.position = "right")
+print(scatter_plant)
+
+# -----------------------------------------------------------------------------
+# Statistical Modeling: Linear Model Including All Factors
+# Here we assess how treatment, transmission events nearby, basin, plant,
+# and days post inoculation explain the variation in log normalized expression.
+# -----------------------------------------------------------------------------
+model <- lm(log_normalized ~ treatment + trans_events + basin + plant + dpi, data = df)
+summary(model)
+
+# Optionally, run an ANOVA on the model to see the overall significance of factors.
+anova_model <- aov(log_normalized ~ treatment + trans_events + basin + plant + dpi, data = df)
+summary(anova_model)
+
+
+```
+
+```{r}
+# ---- Install and Load Required Packages ----
+if (!require("readxl")) install.packages("readxl")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("lme4")) install.packages("lme4")  # for mixed models
+if (!require("ggpubr")) install.packages("ggpubr")  # for enhanced plotting
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(ggpubr)
+
+# ---- Read the Data ----
+df <- read_excel("qPCR central root titer.xlsx")
+
+# Inspect the data
+head(df)
+str(df)
+
+# ---- Rename Columns for Easier Handling ----
+df <- df %>% rename(
+  treatment        = treatment,
+  transmission_nearby     = `transmission events nearby`,
+  total_basin      = `total events in basin`,
+  basin            = basin,
+  plant            = plant,
+  dpi              = `days post inoculation`,
+  norm_factor      = `Norm factor`,
+  GFLV_Cq          = `GFLV Cq`,
+  FBOX_Cq          = `FBOX Cq`,
+  exp_ddCq         = `2exp∆∆Cq`,
+  norm_2exp_ddCq   = `Normalized 2exp∆∆Cq`,
+  log_exp_ddCq     = `Log(2exp∆∆Cq)`,
+  log_normalized   = `Log normalized`
+)
+
+# ---- Convert Variables to Appropriate Types ----
+df$treatment <- as.factor(df$treatment)
+df$basin     <- as.factor(df$basin)
+df$plant     <- as.factor(df$plant)
+
+# Ensure the count variables are numeric:
+df <- df %>%
+  mutate(
+    transmission_nearby = as.numeric(as.character(transmission_nearby)),
+    total_basin  = as.numeric(as.character(total_basin))
+  )
+
+# ==============================================================================
+# 1. Combined (Basin-Level) Titer Impact on Transmission
+# ==============================================================================
+# For each basin, we aggregate the virus titer (using the linear-scale "norm_2exp_ddCq")
+# and also sum the transmission events from the two plants.
+df_basin <- df %>%
+  group_by(basin, treatment, total_basin) %>%
+  summarise(
+    combined_titer = sum(norm_2exp_ddCq, na.rm = TRUE),      # combined virus titer
+    sum_transmission_nearby = sum(transmission_nearby, na.rm = TRUE)         # total transmission events in the basin
+  ) %>%
+  ungroup()
+
+# Plot the basin-level relationship:
+p_basin <- ggplot(df_basin, aes(x = combined_titer, y = sum_transmission_nearby, color = treatment)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  theme_minimal() +
+  labs(title = "Basin-Level: Combined Titer vs. Transmission Events",
+       x = "Combined Titer (Sum of Normalized 2exp∆∆Cq)",
+       y = "Sum of Transmission Events Nearby")
+print(p_basin)
+
+# Linear regression at the basin level:
+lm_basin <- lm(sum_transmission_nearby ~ combined_titer, data = df_basin)
+summary(lm_basin)
+
+# ==============================================================================
+# 2. Individual-Level Analysis & Assessing Spatial Bias with Mixed Models
+# ==============================================================================
+# Here we use the individual plant data (with "log_normalized" as the titer metric)
+# but account for the non-independence of the two plants in each basin.
+mixed_model <- lmer(transmission_nearby ~ log_normalized + (1 | basin), data = df)
+summary(mixed_model)
+
+# Optionally, add other fixed effects (such as dpi or treatment) to see if the relationship
+# holds after adjusting for those factors:
+mixed_model_full <- lmer(transmission_nearby ~ log_normalized + treatment + dpi + (1 | basin), data = df)
+summary(mixed_model_full)
+
+# ==============================================================================
+# 3. Comparing to the Impact of Treatment on Titer
+# ==============================================================================
+# Here we assess how treatment affects titer.
+# (a) Using the log-transformed titer:
+treatment_model_log <- lm(log_normalized ~ treatment, data = df)
+summary(treatment_model_log)
+
+# (b) Alternatively, using the linear-scale titer:
+treatment_model_lin <- lm(norm_2exp_ddCq ~ treatment, data = df)
+summary(treatment_model_lin)
+
+# ==============================================================================
+# Interpretation and Discussion
+# ==============================================================================
+# 1. Basin-Level Analysis:
+#    - The regression (lm_basin) tests whether basins with a higher combined titer
+#      also have more transmission events nearby.
+#
+# 2. Individual-Level Analysis:
+#    - The mixed-effects model accounts for the spatial grouping (two plants per basin).
+#      Comparing this with the basin-level analysis lets you evaluate if the effect
+#      is driven by the overall basin titer or if there is substantial within-basin variability.
+#    - If the individual-level effect (adjusted for basin) is weaker or different than the
+#      basin-level effect, it may indicate bias due to the non-independence of plants within basins.
+#
+# 3. Treatment Effects on Titer:
+#    - The treatment models reveal how treatment affects titer directly.
+#      If treatment strongly influences titer but the titer–transmission relationship remains
+#      significant after accounting for treatment (as seen in the mixed model), then the titer–transmission
+#      relationship is not simply a reflection of treatment differences.
+#
+# Together, these analyses help you answer:
+#   - Is the overall (combined) titer in a basin predictive of transmission events?
+#   - Does analyzing individual plants (with proper spatial modeling) reveal a similar pattern or a bias?
+#   - How does this relationship compare to the direct impact of treatment on titer?
+
+
+
+```
+```{r}
+# ---- Install and Load Required Packages ----
+library(readxl)
+library(dplyr)
+library(stringr)
+
+# ---- Read in the Two Excel Files ----
+
+# qPCR data file (e.g., "qPCR central root titer.xlsx")
+df_qpcr <- read_excel("qPCR central root titer.xlsx")
+
+# Rhizo Transmission Assay file (e.g., "Rhizo_TransmissionAssay2.xlsx")
+df_rhizo <- read_excel("Rhizo_TransmissionAssay2.xlsx")
+
+# ---- Rename Columns if Necessary ----
+# For example, if the Rhizo file uses "plant number" instead of "plant", rename it:
+df_rhizo <- df_rhizo %>% 
+  rename(plant = `number`)
+
+# ---- Define a Function to Clean Key Values ----
+clean_key <- function(x) {
+  # Convert to character, remove leading/trailing whitespace,
+  # replace one or more whitespace characters with nothing (i.e. remove all spaces),
+  # and force to lower-case.
+  str_to_lower(str_replace_all(as.character(x), "\\s+", ""))
+}
+
+# ---- Standardize the Key Columns in Both Data Frames ----
+df_qpcr <- df_qpcr %>%
+  dplyr::mutate(
+    basin = clean_key(basin),
+    plant = clean_key(plant),
+  )
+
+df_rhizo <- df_rhizo %>%
+  dplyr::mutate(
+    basin = clean_key(basin),
+    plant = clean_key(plant),
+  )
+
+# ---- (Optional) Check for Unmatched Keys ----
+# See which rows in the qPCR data are not matching any row in the Rhizo file:
+unmatched_keys <- anti_join(df_qpcr, df_rhizo, by = c("basin", "plant", "treatment"))
+if(nrow(unmatched_keys) > 0) {
+  message("There are ", nrow(unmatched_keys), " rows in the qPCR file with no matching key in the Rhizo file:")
+  print(unmatched_keys %>% select(basin, plant, treatment) %>% distinct())
+} else {
+  message("All keys in the qPCR file have a match in the Rhizo file!")
+}
+
+df_qpcr2 <- df_qpcr %>% 
+  filter(treatment != "mock control")
+
+# ---- Merge the Data Frames Using Left Join with All Three Keys ----
+combined_df <- left_join(df_qpcr2, df_rhizo, by = c("basin", "plant", "treatment"))
+df_qpcr2
+
+combined_df_avg <- combined_df %>%
+  group_by(`treatment`) %>%
+  dplyr::summarise(
+    # For all numeric columns, compute the average.
+    across(where(is.numeric), ~mean(.x, na.rm = TRUE)),
+    # For non-numeric columns, simply take the first (or unique) value.
+    across(where(~!is.numeric(.x)), ~first(.x))
+  ) %>%
+  ungroup()
+
+# ---- Inspect the Merged Data Frame ----
+head(combined_df)
+str(combined_df)
+
+# ---- Rename Columns for Clarity ----
+# We rename some columns so that they are easier to reference.
+df_qpcr <- df_qpcr %>%
+  rename(
+    Treatment = treatment,
+    TransmissionNearby = `transmission events nearby`,
+    TotalBasin = `total events in basin`,
+    DPO = `days post inoculation`,
+    NormFactor = `Norm factor`,
+    GFLV_Cq = `GFLV Cq`,
+    FBOX_Cq = `FBOX Cq`,
+    TwoExpDeltaDeltaCq = `2exp∆∆Cq`,
+    NormalizedTiter = `Normalized 2exp∆∆Cq`,
+    LogNormalized = `Log normalized`
+  )
+
+# ---- Set the Treatment Factor in the Desired Order ----
+# (The desired order must match your data; here we assume they match exactly.)
+desired_order <- c("mock control", "mutant F13 1E G802K", "mutant GHu 1E K802G", 
+                   "wildtype F13", "wildtype GHu")
+df_qpcr$Treatment <- factor(df_qpcr$Treatment, levels = desired_order)
+
+# ---- Filter Out the Mock Control Samples ----
+# We want to focus only on the viral treatments.
+df_viral <- df_qpcr %>% 
+  filter(Treatment != "mock control")
+
+# ---- Define the Custom Color Palette ----
+my_colors <- c(
+  "mutant F13 1E G802K" = "#4DACD6",  # mutant F13
+  "mutant GHu 1E K802G" = "#C02D45",  # mutant GHu
+  "wildtype F13" = "#0172B8",          # wildtype F13
+  "wildtype GHu" = "red4"              # wildtype GHu
+)
+# (Note: Since mock control is removed, our palette now only includes the remaining treatments.)
+
+# ---- Define a Common y-axis Range for the Two Transmission Responses ----
+# We compute the overall range from both TransmissionNearby and TotalBasin.
+common_y_limits <- range(c(df_viral$TransmissionNearby, df_viral$TotalBasin), na.rm = TRUE)
+
+# ---- Model and Plot: Transmission Events Nearby vs. Log Normalized Titer ----
+p_nearby <- ggscatter(df_viral, x = "LogNormalized", y = "TransmissionNearby", 
+                      add = "reg.line", conf.int = TRUE,
+                      add.params = list(alpha = 0.5, color = "Treatment"),
+                      color = "Treatment", palette = my_colors,
+                      xlab = "Log Normalized Titer", 
+                      ylab = "Transmission Events Nearby",
+                      title = "Transmission Events Nearby vs. Titer") +
+  scale_y_continuous(limits = common_y_limits) +
+  stat_regline_equation(label.x = min(df_viral$LogNormalized, na.rm = TRUE),
+                        label.y = 4)
+
+# ---- Model and Plot: Total Events in Basin vs. Log Normalized Titer ----
+p_total <- ggscatter(df_viral, x = "LogNormalized", y = "TotalBasin", 
+                     add = "reg.line", conf.int = TRUE,
+                     add.params = list(alpha = 0.5, color = "Treatment"),
+                     color = "Treatment", palette = my_colors,
+                     xlab = "Log Normalized Titer", 
+                     ylab = "Total Events in Basin",
+                     title = "Total Events in Basin vs. Titer") +
+  scale_y_continuous(limits = common_y_limits) +
+  stat_regline_equation(label.x = min(df_viral$LogNormalized, na.rm = TRUE),
+                        label.y = 4)
+
+# ---- Display the Two Plots Side by Side ----
+grid.arrange(p_nearby, p_total, ncol = 2)
+
+
+```
+
+```{r}
+
+# ---- Install and Load Required Packages ----
+if (!require("readxl")) install.packages("readxl")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("stringr")) install.packages("stringr")
+if (!require("corrplot")) install.packages("corrplot")
+library(readxl)
+library(dplyr)
+library(stringr)
+library(corrplot)
+
+# ---- Read in the Merged Data Frame ----
+# (Assuming you already fixed the merge by using the "number" column from the rhizodata, and the result is stored in combined_df.)
+# If you averaged over duplicate scans, then that data frame might be called combined_df_avg.
+# For this example, we assume the merged data is in combined_df.
+df <- combined_df_avg  # or combined_df_avg if you averaged the scans
+df$`number of root tips`
+# ---- Rename Columns to Simpler Names for Correlation Analysis ----
+# (You can adjust these names as needed.)
+df_corr <- df %>%
+  rename(
+    transmission_nearby = `transmission events nearby`,
+    total_basin = `total events in basin`,
+    norm_factor = `Norm factor`,
+    GFLV_Cq = `GFLV Cq`,
+    FBOX_Cq = `FBOX Cq`,
+    exp_ddCq = `2exp∆∆Cq`,
+    norm_2exp_ddCq = `Normalized 2exp∆∆Cq`,
+    log_exp_ddCq = `Log(2exp∆∆Cq)`,
+    log_normalized = `Log normalized`,
+    dpi = dpi,
+    dpn = `dpn (days post nematode placement)`,
+    root_tips = `number of root tips`,
+    root_length = `total root length (mm)`,
+    branching_freq = `branching frequency (mm^-1)`,
+    network_area = `network area (mm^2)`,
+    avg_diam = `average diameter (mm)`,
+    med_diam = `median diameter (mm)`,
+    max_diam = `maximum diameter (mm)`,
+    root_perimeter = `perimeter (mm)`,
+    volume = `volume (mm^3)`,
+    surface_area = `surface area (mm^2)`,
+    comp_time = `computation time (s)`
+  )
+
+# ---- Select Numeric Variables for Correlation Analysis ----
+# We include the two response variables along with a number of potential predictors.
+# You may adjust this list as needed.
+cols_for_corr <- c("transmission_nearby", "total_basin", "dpi", "dpn", "exp_ddCq", "norm_2exp_ddCq", 
+                   "log_exp_ddCq", "log_normalized", "root_length", "branching_freq", "network_area", 
+                   "avg_diam", "med_diam", "max_diam", "root_perimeter", "volume", "surface_area", "root_tips")
+
+# Subset the data and ensure it is a data frame
+corr_df <- df_corr %>% 
+  select(all_of(cols_for_corr)) %>%
+  as.data.frame()
+
+# ---- Compute the Correlation Matrix ----
+# We use pairwise complete observations in case some rows have missing values.
+cor_matrix <- cor(corr_df, use = "pairwise.complete.obs", method = "pearson")
+
+# ---- Visualize the Correlation Matrix ----
+corrplot(cor_matrix, method = "color", type = "lower", outline = T,
+         tl.col = "black", tl.srt = 45, diag = F, order = "hclust", mar=c(0,0,1,0))
+
+# ---- Extract Correlations for the Response Variables ----
+
+# For 'transmission events nearby'
+cor_trans <- cor_matrix["transmission_nearby", ]
+cat("Correlations with 'transmission events nearby':\n")
+print(round(cor_trans, 3))
+
+# For 'total events in basin'
+cor_total <- cor_matrix["total_basin", ]
+cat("Correlations with 'total events in basin':\n")
+print(round(cor_total, 3))
+
+# ---- Optional: Fit Linear Regression Models ----
+# (These models can help to further assess which predictors significantly impact the responses.)
+lm_trans <- lm(transmission_nearby ~ norm_factor + GFLV_Cq + FBOX_Cq +
+                   log_normalized + dpi + dpn + age + root_length + branching_freq +
+                   network_area + avg_diam + med_diam + max_diam + root_perimeter +
+                   volume + surface_area + root_tips, data = df_corr)
+cat("\nSummary of linear model for 'transmission events nearby':\n")
+print(summary(lm_trans))
+
+lm_total <- lm(total_basin ~ norm_factor + GFLV_Cq + FBOX_Cq +
+                   log_normalized + dpi + dpn + age + root_length + branching_freq +
+                   network_area + avg_diam + med_diam + max_diam + root_perimeter +
+                   volume + surface_area + root_tips, data = df_corr)
+cat("\nSummary of linear model for 'total events in basin':\n")
+print(summary(lm_total))
+
+
+
+```
+
+
+```{r}
+
+# ---- Install and Load Required Packages ----
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("gridExtra")) install.packages("gridExtra")
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+# ---- Assume your merged & cleaned data is stored in df_corr ----
+# df_corr is assumed to contain the following (among others):
+# transmission_nearby, total_basin, root_length, branching_freq, volume, surface_area
+
+# Check a quick summary of the variables
+summary(df_corr[, c("transmission_nearby", "total_basin", "root_length", "branching_freq", "volume", "surface_area", "root_tips")])
+
+# ---- Define the Predictors and Response Variables ----
+predictors <- c("root_length", "branching_freq", "volume", "surface_area", "root_tips")
+responses <- c("transmission_nearby", "total_basin")
+
+# ---- Loop Over Predictors and Responses: Fit Models and Create Plots ----
+
+# Create an empty list to store plots
+plot_list <- list()
+
+# Loop through each predictor and response
+for (pred in predictors) {
+  for (resp in responses) {
+    # Construct a formula like: transmission_nearby ~ root_length
+    formula_str <- as.formula(paste(resp, "~", pred))
+    
+    # Fit a simple linear model
+    mod <- lm(formula_str, data = df_corr)
+    cat("\n------------------------------------------------------\n")
+    cat("Linear Model: ", resp, " ~ ", pred, "\n")
+    print(summary(mod))
+    
+    # Create a scatter plot with a regression line
+    p <- ggplot(df_corr, aes_string(x = pred, y = resp)) +
+      geom_point(alpha = 0.7, color = "darkgreen") +
+      geom_smooth(method = "lm", se = TRUE, color = "blue") +
+      labs(title = paste(resp, "vs", pred),
+           x = pred,
+           y = resp) +
+      theme_minimal()
+    
+    # Save the plot in the list; name it with both response and predictor
+    plot_list[[paste(resp, pred, sep = "_")]] <- p
+  }
+}
+
+# ---- Arrange and Display the Plots ----
+# We now have 8 plots (4 predictors × 2 responses).
+# Arrange them in a grid; here we use 2 columns.
+grid.arrange(grobs = plot_list, ncol = 2)
+
+
+```
+
+
+```{r}
+
+# ---- Install and Load Required Packages ----
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("gridExtra")) install.packages("gridExtra")
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+# ---- Assume your merged & cleaned data is stored in df_corr ----
+# Ensure that treatment is a factor
+df_corr$treatment <- as.factor(df_corr$treatment)
+
+# Optionally, set the factor levels to match our desired names:
+df_corr$treatment <- factor(df_corr$treatment, 
+                            levels = c("mockcontrol", "mutantf131eg802k", "mutantghu1ek802g", 
+                                       "wildtypef13", "wildtypeghu"))
+
+# Define the custom colors for each treatment
+my_colors <- c(
+  "mockcontrol" = "#4FAE62",      # healthy
+  "mutantf131eg802k" = "#4DACD6",  # mutant F13
+  "mutantghu1ek802g" = "#C02D45",  # mutant GHu
+  "wildtypef13" = "#0172B8",       # wildtype F13
+  "wildtypeghu" = "red4"           # wildtype GHu
+)
+
+# ---- Define the Predictors and Response Variables ----
+predictors <- c("root_length", "branching_freq", "volume", "surface_area")
+responses <- c("transmission_nearby", "total_basin")
+
+# ---- Loop Over Predictors and Responses: Fit Models and Create Plots ----
+
+# Create an empty list to store plots
+plot_list <- list()
+
+# Loop through each predictor and response combination
+for (pred in predictors) {
+  for (resp in responses) {
+    # Construct a formula like: transmission_nearby ~ root_length
+    formula_str <- as.formula(paste(resp, "~", pred))
+    
+    # Fit a simple linear model
+    mod <- lm(formula_str, data = df_corr)
+    cat("\n------------------------------------------------------\n")
+    cat("Linear Model: ", resp, " ~ ", pred, "\n")
+    print(summary(mod))
+    
+    # Create a scatter plot with regression line, coloring points by treatment.
+    p <- ggplot(df_corr, aes_string(x = pred, y = resp, color = "treatment")) +
+      geom_point(alpha = 0.7, size = 2) +
+      geom_smooth(method = "lm", se = TRUE, color = "black") +
+      scale_color_manual(values = my_colors) +
+      labs(title = paste(""),
+           x = pred,
+           y = resp,
+           color = "Treatment") +
+      theme_minimal() + theme(legend.position = "NA")
+    
+    # Save the plot in the list; the name uses both response and predictor.
+    plot_list[[paste(resp, pred, sep = "_")]] <- p
+  }
+}
+
+# ---- Arrange and Display the Plots ----
+# Arrange the 8 plots (4 predictors x 2 responses) in a grid (2 columns)
+grid.arrange(grobs = plot_list, ncol = 2)
+
+
+
+```
+
+```{r}
+
+# ---- Install and Load Required Packages ----
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggbeeswarm")) install.packages("ggbeeswarm")  # optional for beeswarm-like jitter
+library(ggplot2)
+library(dplyr)
+library(ggbeeswarm)  # Provides geom_beeswarm()
+
+# ---- Assume your merged data is in combined_data ----
+# Rename columns for clarity:
+combined_data <- combined_df %>%
+  rename(
+    InoculumTreatment = treatment,              # treatment as InoculumTreatment
+    NormalizedTiter = `Log normalized`       # normalized titer column
+  )
+
+# Ensure that InoculumTreatment is a factor and set its levels in the desired order.
+combined_data$InoculumTreatment <- factor(combined_data$InoculumTreatment, 
+                                          levels = c("mockcontrol", "mutantf131eg802k", 
+                                                     "mutantghu1ek802g", "wildtypef13", 
+                                                     "wildtypeghu"))
+
+# Define your custom color palette:
+my_colors <- c(
+  "mockcontrol"         = "#4FAE62",  # healthy
+  "mutantf131eg802k"    = "#4DACD6",  # mutant F13
+  "mutantghu1ek802g"    = "#C02D45",  # mutant GHu
+  "wildtypef13"         = "#0172B8",  # wildtype F13
+  "wildtypeghu"         = "red4"      # wildtype GHu
+)
+
+# ---- Calculate Summary Statistics (Mean and SEM) for Each Treatment ----
+summary_stats <- combined_data %>%
+  group_by(InoculumTreatment) %>%
+  dplyr::summarize(
+    mean_titer = mean(NormalizedTiter, na.rm = TRUE),
+    sem = sd(NormalizedTiter, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# ---- Create the Boxplot with Jitter, Mean, and SEM Error Bars ----
+ggplot(combined_data, aes(x = InoculumTreatment, y = NormalizedTiter, fill = InoculumTreatment)) +
+  # Create boxplots; outliers will be suppressed because we add jitter points
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  # Add jittered points (you can use geom_jitter or geom_beeswarm)
+  geom_beeswarm(color = "black", size = 2, alpha = 0.5) +
+  # Overlay the group mean as a large point (here shape 18, a diamond)
+  geom_point(data = summary_stats, aes(x = InoculumTreatment, y = mean_titer), 
+             shape = 18, size = 3, color = "black") +
+  labs(
+    x = "Inoculum Treatment",
+    y = "Normalized Titer",
+    title = "Normalized Titer by Inoculum Treatment"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = my_colors)
+
+# ---- Display the Plot ----
+print(p)
+
+
+
+```
+
+```{r}
+
+# ---- Install and Load Required Packages ----
+if (!require("readxl")) install.packages("readxl")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggplot2")) install.packages("ggplot2")
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+# ---- Read in the Original qPCR Excel File ----
+df_qpcr <- read_excel("qPCR central root titer.xlsx")
+
+# ---- (Optional) Inspect the Data ----
+head(df_qpcr)
+str(df_qpcr)
+
+# ---- For clarity, rename the key columns (if desired) ----
+# Here we keep the normalized titer column as is but rename it for easier reference.
+df_qpcr <- df_qpcr %>%
+  rename(
+    Transmission_Nearby = `transmission events nearby`,
+    Total_Basin = `total events in basin`,
+    DPO = `days post inoculation`,
+    NormFactor = `Norm factor`,
+    TwoExpDeltaDeltaCq = `2exp∆∆Cq`,
+    NormalizedTiter = `Normalized 2exp∆∆Cq`,  # We'll use this as our y-axis
+    LogExpDeltaDeltaCq = `Log(2exp∆∆Cq)`,
+    LogNormalized = `Log normalized`
+  )
+
+# ---- Set the Treatment Factor with a Defined Order ---
+# We want the order to match our color mapping:
+desired_order <- c("mock control", "mutant F13 1E G802K", "mutant GHu 1E K802G", "wildtype F13", "wildtype GHu")
+# If the treatments in your file include spaces (e.g. "wildtype F13"), use those exact names.
+# (Check the unique treatments in your data:)
+unique(df_qpcr$treatment)
+
+# For this example, we assume the treatments exactly match the desired names.
+df_qpcr$treatment <- factor(df_qpcr$treatment, levels = desired_order)
+
+# ---- Define the Custom Color Palette ----
+my_colors <- c(
+  "mock control"         = "#4FAE62",  # healthy
+  "mutant F13 1E G802K"    = "#4DACD6",  # mutant F13
+  "mutant GHu 1E K802G"    = "#C02D45",  # mutant GHu
+  "wildtype F13"         = "#0172B8",   # wildtype F13
+  "wildtype GHu"         = "red4"       # wildtype GHu
+)
+
+# ---- Calculate Summary Statistics by Treatment (Mean and SEM) ----
+summary_stats <- df_qpcr %>%
+  group_by(treatment) %>%
+  summarize(
+    mean_titer = mean(LogNormalized, na.rm = TRUE),
+    sem = sd(LogNormalized, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# ---- Create the Boxplot with Jittered Data, Mean and SEM Error Bars ----
+ggplot(df_qpcr, aes(x = treatment, y = LogNormalized, fill = treatment)) +
+  geom_boxplot(width = 0.5, alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 2, color = "black", alpha = 0.5) +
+  geom_point(data = summary_stats, aes(x = treatment, y = mean_titer),
+             shape = 18, size = 3, color = "black") +
+  labs(
+    x = "",
+    y = "",
+    title = ""
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size =14), aspect.ratio = 1,
+    axis.text.x = element_text(angle = 0, hjust = 0), legend.position = "none"
+  ) +
+  scale_fill_manual(values = my_colors)
+
+
+# Reshape the data from long to wide format
+df_wide <- df_long %>%
+  pivot_wider(names_from = treatment, values_from = LogNormalized)
+
+# Check the reshaped data
+head(df_wide)
+
+# Perform a paired t-test
+# Suppose the conditions are "Before" and "After"
+paired_result <- t.test(df_wide$Before, df_wide$After, paired = TRUE)
+print(paired_result)
+
+# Alternatively, if the assumption of normal differences is in doubt, use Wilcoxon:
+paired_result_wilcox <- wilcox.test(df_wide$Before, df_wide$After, paired = TRUE)
+print(paired_result_wilcox)
+
+qqnorm(df_qpcr$LogNormalized, main = "Q-Q Plot of Log Normalized Titer", col = "blue", pch = 19)
+qqline(df_qpcr$LogNormalized, col = "red", lty = 2)
+
+#only mock controls fall away from normality, so this is okay for pairwise comparisons
+
+# ---- Statistical Analysis: ANOVA and Tukey's HSD ----
+anova_model <- aov(LogNormalized ~ treatment, data = df_qpcr)
+cat("ANOVA Results:\n")
+print(summary(anova_model))
+
+# Perform Tukey's HSD post-hoc test
+tukey_results <- TukeyHSD(anova_model)
+cat("\nTukey's HSD Post-Hoc Results:\n")
+print(tukey_results)
+
+kruskal_result <- kruskal.test(LogNormalized ~ treatment, data = df_qpcr)
+print(kruskal_result)
+
+# For pairwise comparisons, you can use the Wilcoxon test with p-value adjustment:
+pairwise_result <- pairwise.wilcox.test(df_qpcr$LogNormalized, df_qpcr$treatment,
+                                          p.adjust.method = "BH", paired = FALSE)
+print(pairwise_result)
+
+p <- ggboxplot(df_qpcr, x = "treatment", y = "LogNormalized", color = "black", fill="treatment",
+               palette = my_colors, add = "jitter", 
+               xlab = "Inoculum Treatment", ylab = "Log Normalized Titer Expression",
+               title = "Comparison of Titer Expression Across Treatments") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+
+
+
+comparisons <- list(c("wildtype F13", "wildtype GHu")
+)
+
+# ---- Add Brackets with stat_compare_means() ----
+# Use method = "wilcox.test" for non-parametric pairwise comparisons.
+p + stat_compare_means(comparisons = comparisons, 
+                            method = "wilcox.test", 
+                            label = "p.signif",
+                            tip.length = 0.01,
+                            hide.ns = F)
+
+
+```
